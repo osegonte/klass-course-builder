@@ -1,80 +1,57 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Flashcard } from '../types/content'
 
-export function useFlashcards(topicId: string) {
+function rowToFlashcard(row: any): Flashcard {
+  return {
+    id: row.id,
+    front: row.front,
+    back: row.back,
+    order: row.card_order,
+  }
+}
+
+export function useFlashcards(subtopicId: string, subjectId?: string) {
   const [flashcards, setFlashcards] = useState<Flashcard[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    loadFlashcards()
-  }, [topicId])
-
-  const loadFlashcards = async () => {
-    setLoading(true)
+  const fetch = useCallback(async () => {
+    if (!subtopicId) return
     const { data, error } = await supabase
-      .from('flashcards')
+      .from('cs_flashcards')
       .select('*')
-      .eq('topic_id', topicId)
-      .order('card_order', { ascending: true })
-
-    if (!error && data) {
-      setFlashcards(data.map(row => ({
-        id: row.id,
-        front: row.front,
-        back: row.back,
-        order: row.card_order,
-      })))
-    }
+      .eq('subtopic_id', subtopicId)
+      .order('card_order')
+    if (!error && data) setFlashcards(data.map(rowToFlashcard))
     setLoading(false)
-  }
+  }, [subtopicId])
+
+  useEffect(() => { fetch() }, [fetch])
 
   const addFlashcard = async (card: Flashcard) => {
-    setFlashcards(prev => [...prev, card])
-
-    const { error } = await supabase
-      .from('flashcards')
-      .insert({
-        id: card.id,
-        topic_id: topicId,
-        front: card.front,
-        back: card.back,
-        card_order: card.order,
-      })
-
-    if (error) {
-      console.error('Failed to save flashcard:', error.message)
-      setFlashcards(prev => prev.filter(c => c.id !== card.id))
-    }
+    await supabase.from('cs_flashcards').insert({
+      id: card.id,
+      subtopic_id: subtopicId,
+      subject_id: subjectId ?? null,
+      front: card.front,
+      back: card.back,
+      card_order: card.order,
+    })
+    await fetch()
   }
 
-  const updateFlashcard = async (updated: Flashcard) => {
-    setFlashcards(prev => prev.map(c => c.id === updated.id ? updated : c))
-
-    const { error } = await supabase
-      .from('flashcards')
-      .update({
-        front: updated.front,
-        back: updated.back,
-        card_order: updated.order,
-      })
-      .eq('id', updated.id)
-
-    if (error) console.error('Failed to update flashcard:', error.message)
+  const updateFlashcard = async (card: Flashcard) => {
+    await supabase.from('cs_flashcards').update({
+      front: card.front,
+      back: card.back,
+      card_order: card.order,
+    }).eq('id', card.id)
+    setFlashcards(prev => prev.map(c => c.id === card.id ? card : c))
   }
 
   const deleteFlashcard = async (id: string) => {
+    await supabase.from('cs_flashcards').delete().eq('id', id)
     setFlashcards(prev => prev.filter(c => c.id !== id))
-
-    const { error } = await supabase
-      .from('flashcards')
-      .delete()
-      .eq('id', id)
-
-    if (error) {
-      console.error('Failed to delete flashcard:', error.message)
-      loadFlashcards()
-    }
   }
 
   return { flashcards, loading, addFlashcard, updateFlashcard, deleteFlashcard }

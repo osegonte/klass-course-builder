@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Trash2, Plus, X } from 'lucide-react'
+import { Trash2, Plus, X, ChevronDown, ChevronUp } from 'lucide-react'
 import type { ContentBlock, ExampleStep, Question, Flashcard } from '../../types/content'
 
 interface Props {
@@ -10,285 +10,150 @@ interface Props {
   onDelete: (id: string) => void
 }
 
-const blockColors: Record<string, string> = {
-  definition: 'border-purple-500/30',
-  explanation: 'border-purple-400/20',
-  formula: 'border-gray-500/30',
-  example: 'border-gray-400/20',
-  keypoint: 'border-purple-300/20',
-  note: 'border-gray-600/30',
-  question: 'border-purple-600/40',
-  flashcard: 'border-gray-500/20',
-}
-
 const blockLabels: Record<string, string> = {
-  definition: 'Definition',
-  explanation: 'Explanation',
-  formula: 'Formula',
-  example: 'Example',
-  keypoint: 'Key Point',
-  note: 'Note',
-  question: 'Question',
-  flashcard: 'Flashcard',
+  definition: 'Definition', explanation: 'Explanation', formula: 'Formula',
+  example: 'Example', keypoint: 'Key Point', note: 'Note',
+  question: 'Question', flashcard: 'Flashcard',
 }
 
-const blockBadgeColors: Record<string, string> = {
-  definition: 'bg-purple-500/20 text-purple-300',
-  explanation: 'bg-purple-400/10 text-purple-400',
-  formula: 'bg-gray-700 text-gray-300',
-  example: 'bg-gray-600/30 text-gray-300',
-  keypoint: 'bg-purple-300/10 text-purple-300',
-  note: 'bg-gray-800 text-gray-500',
-  question: 'bg-purple-600/20 text-purple-300',
-  flashcard: 'bg-gray-700 text-gray-400',
-}
+const inputClass = "w-full text-sm text-gray-900 placeholder-gray-300 border border-gray-200 rounded p-2.5 outline-none focus:border-gray-400 transition-colors resize-none bg-white"
 
 export default function ContentBlockCard({ block, question, flashcard, onChange, onDelete }: Props) {
   const [collapsed, setCollapsed] = useState(false)
-
-  const update = (fields: Partial<ContentBlock>) => {
-    onChange({ ...block, ...fields })
-  }
+  const update = (fields: Partial<ContentBlock>) => onChange({ ...block, ...fields })
 
   const addStep = () => {
-    const newStep: ExampleStep = {
-      id: crypto.randomUUID(),
-      expression: '',
-      talkingPoint: '',
-    }
+    const newStep: ExampleStep = { id: crypto.randomUUID(), expression: '', talkingPoint: '' }
     update({ steps: [...(block.steps || []), newStep] })
   }
 
-  const updateStep = (id: string, fields: Partial<ExampleStep>) => {
-    update({
-      steps: (block.steps || []).map(s => s.id === id ? { ...s, ...fields } : s)
-    })
-  }
+  const updateStep = (id: string, fields: Partial<ExampleStep>) =>
+    update({ steps: (block.steps || []).map(s => s.id === id ? { ...s, ...fields } : s) })
 
-  const deleteStep = (id: string) => {
+  const deleteStep = (id: string) =>
     update({ steps: (block.steps || []).filter(s => s.id !== id) })
-  }
 
   return (
-    <div className={`bg-gray-900 border ${blockColors[block.type]} rounded-xl overflow-hidden`}>
+    <div className="bg-white border border-gray-200 rounded overflow-hidden">
 
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-800">
-        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${blockBadgeColors[block.type]}`}>
+      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-100 bg-stone-50">
+        <span className="text-xs font-medium text-gray-500 uppercase tracking-widest w-20 shrink-0">
           {blockLabels[block.type]}
         </span>
         <span className="flex-1 text-sm text-gray-400 truncate">
-          {block.type === 'question'
-            ? (question?.questionText || 'Question block')
-            : block.type === 'flashcard'
-            ? (flashcard?.front || 'Flashcard block')
-            : (block.title || `New ${blockLabels[block.type]}...`)
-          }
+          {block.type === 'question' ? (question?.questionText || 'Question block')
+            : block.type === 'flashcard' ? (flashcard?.front || 'Flashcard block')
+            : (block.title || `Untitled ${blockLabels[block.type]}`)}
         </span>
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="text-gray-600 hover:text-gray-400 text-xs"
-        >
-          {collapsed ? 'Expand' : 'Collapse'}
+        <button onClick={() => setCollapsed(!collapsed)} className="text-gray-300 hover:text-gray-500 transition-colors">
+          {collapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
         </button>
-        <button
-          onClick={() => onDelete(block.id)}
-          className="text-gray-600 hover:text-red-400 transition-colors"
-        >
-          <Trash2 size={15} />
+        <button onClick={() => onDelete(block.id)} className="text-gray-300 hover:text-red-400 transition-colors">
+          <Trash2 size={13} />
         </button>
       </div>
 
       {!collapsed && (
-        <div className="p-4 flex flex-col gap-4">
+        <div className="p-4 flex flex-col gap-3">
 
-          {/* Definition */}
           {block.type === 'definition' && (
             <>
-              <input
-                className="w-full bg-gray-800 text-white text-sm rounded-lg p-3 placeholder-gray-600 outline-none border border-gray-700 focus:border-gray-500"
-                placeholder="Term or concept name..."
-                value={block.title}
-                onChange={e => update({ title: e.target.value })}
-              />
-              <textarea
-                className="w-full bg-gray-800 text-white text-sm rounded-lg p-3 placeholder-gray-600 outline-none resize-none border border-gray-700 focus:border-gray-500 min-h-[80px]"
-                placeholder="Clear, precise definition..."
-                value={block.body}
-                onChange={e => update({ body: e.target.value })}
-              />
-              <textarea
-                className="w-full bg-gray-800 text-white text-sm rounded-lg p-3 placeholder-gray-600 outline-none resize-none border border-gray-700 focus:border-gray-500 min-h-[60px]"
-                placeholder="Analogy to make it stick (optional)..."
-                value={block.analogy || ''}
-                onChange={e => update({ analogy: e.target.value })}
-              />
+              <input className={inputClass} placeholder="Term or concept name..." value={block.title} onChange={e => update({ title: e.target.value })} />
+              <textarea className={inputClass} placeholder="Clear, precise definition..." value={block.body} onChange={e => update({ body: e.target.value })} rows={3} />
+              <textarea className={inputClass} placeholder="Analogy (optional)..." value={block.analogy || ''} onChange={e => update({ analogy: e.target.value })} rows={2} />
             </>
           )}
 
-          {/* Explanation */}
           {block.type === 'explanation' && (
             <>
-              <input
-                className="w-full bg-gray-800 text-white text-sm rounded-lg p-3 placeholder-gray-600 outline-none border border-gray-700 focus:border-gray-500"
-                placeholder="Title for this explanation..."
-                value={block.title}
-                onChange={e => update({ title: e.target.value })}
-              />
-              <textarea
-                className="w-full bg-gray-800 text-white text-sm rounded-lg p-3 placeholder-gray-600 outline-none resize-none border border-gray-700 focus:border-gray-500 min-h-[100px]"
-                placeholder="Explain intuitively — use scenarios, real-world examples..."
-                value={block.body}
-                onChange={e => update({ body: e.target.value })}
-              />
+              <input className={inputClass} placeholder="Title for this explanation..." value={block.title} onChange={e => update({ title: e.target.value })} />
+              <textarea className={inputClass} placeholder="Explain intuitively with real-world context..." value={block.body} onChange={e => update({ body: e.target.value })} rows={4} />
             </>
           )}
 
-          {/* Formula */}
           {block.type === 'formula' && (
             <>
-              <input
-                className="w-full bg-gray-800 text-white text-sm rounded-lg p-3 placeholder-gray-600 outline-none border border-gray-700 focus:border-gray-500"
-                placeholder="Formula name..."
-                value={block.title}
-                onChange={e => update({ title: e.target.value })}
-              />
-              <textarea
-                className="w-full bg-gray-800 text-white text-sm font-mono rounded-lg p-3 placeholder-gray-600 outline-none resize-none border border-gray-700 focus:border-gray-500 min-h-[60px]"
-                placeholder="The formula itself, e.g. x = (-b ± √(b²-4ac)) / 2a"
-                value={block.body}
-                onChange={e => update({ body: e.target.value })}
-              />
-              <textarea
-                className="w-full bg-gray-800 text-white text-sm rounded-lg p-3 placeholder-gray-600 outline-none resize-none border border-gray-700 focus:border-gray-500 min-h-[80px]"
-                placeholder="Break down each variable and what it means..."
-                value={block.breakdown || ''}
-                onChange={e => update({ breakdown: e.target.value })}
-              />
+              <input className={inputClass} placeholder="Formula name..." value={block.title} onChange={e => update({ title: e.target.value })} />
+              <textarea className={`${inputClass} font-mono`} placeholder="The formula, e.g. x = (-b ± √(b²-4ac)) / 2a" value={block.body} onChange={e => update({ body: e.target.value })} rows={2} />
+              <textarea className={inputClass} placeholder="Break down each variable..." value={block.breakdown || ''} onChange={e => update({ breakdown: e.target.value })} rows={3} />
             </>
           )}
 
-          {/* Example */}
           {block.type === 'example' && (
             <>
-              <input
-                className="w-full bg-gray-800 text-white text-sm rounded-lg p-3 placeholder-gray-600 outline-none border border-gray-700 focus:border-gray-500"
-                placeholder="Example title or problem statement..."
-                value={block.title}
-                onChange={e => update({ title: e.target.value })}
-              />
-              <div className="flex flex-col gap-3">
+              <input className={inputClass} placeholder="Example title or problem..." value={block.title} onChange={e => update({ title: e.target.value })} />
+              <div className="flex flex-col gap-2">
                 {(block.steps || []).map((step, index) => (
-                  <div key={step.id} className="bg-gray-800 rounded-lg p-3 border border-gray-700 flex flex-col gap-2">
+                  <div key={step.id} className="border border-gray-200 rounded p-3 flex flex-col gap-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-gray-500">Step {index + 1}</span>
-                      <button
-                        onClick={() => deleteStep(step.id)}
-                        className="text-gray-600 hover:text-red-400 transition-colors"
-                      >
-                        <X size={13} />
-                      </button>
+                      <span className="text-xs text-gray-400">Step {index + 1}</span>
+                      <button onClick={() => deleteStep(step.id)} className="text-gray-300 hover:text-red-400"><X size={12} /></button>
                     </div>
-                    <input
-                      className="w-full bg-gray-900 text-white text-sm font-mono rounded-md p-2 placeholder-gray-600 outline-none border border-gray-700 focus:border-gray-500"
-                      placeholder="Expression or equation for this step..."
-                      value={step.expression}
-                      onChange={e => updateStep(step.id, { expression: e.target.value })}
-                    />
-                    <input
-                      className="w-full bg-gray-900 text-white text-sm rounded-md p-2 placeholder-gray-600 outline-none border border-gray-700 focus:border-gray-500"
-                      placeholder="Talking point — explain what's happening here..."
-                      value={step.talkingPoint}
-                      onChange={e => updateStep(step.id, { talkingPoint: e.target.value })}
-                    />
+                    <input className={inputClass} placeholder="Expression for this step..." value={step.expression} onChange={e => updateStep(step.id, { expression: e.target.value })} />
+                    <input className={inputClass} placeholder="Explain what's happening here..." value={step.talkingPoint} onChange={e => updateStep(step.id, { talkingPoint: e.target.value })} />
                   </div>
                 ))}
-                <button
-                  onClick={addStep}
-                  className="flex items-center gap-2 text-sm text-purple-400 hover:text-purple-300 transition-colors"
-                >
-                  <Plus size={14} />
-                  Add Step
+                <button onClick={addStep} className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 transition-colors">
+                  <Plus size={12} />Add Step
                 </button>
               </div>
             </>
           )}
 
-          {/* Key Point */}
-          {block.type === 'keypoint' && (
-            <textarea
-              className="w-full bg-gray-800 text-white text-sm rounded-lg p-3 placeholder-gray-600 outline-none resize-none border border-gray-700 focus:border-gray-500 min-h-[80px]"
-              placeholder="The single most important thing to remember here..."
-              value={block.body}
-              onChange={e => update({ body: e.target.value })}
-            />
+          {(block.type === 'keypoint' || block.type === 'note') && (
+            <textarea className={inputClass} placeholder={block.type === 'keypoint' ? 'The single most important thing to remember...' : 'Extra context, warnings, or side notes...'} value={block.body} onChange={e => update({ body: e.target.value })} rows={3} />
+          )}
+          {block.type === 'diagram' && (
+            <div className="flex flex-col gap-2">
+              <div className="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center bg-stone-50">
+                <p className="text-xs font-medium text-gray-500 mb-1">📐 Diagram Placeholder</p>
+                <p className="text-xs text-gray-400 leading-relaxed">{block.body}</p>
+              </div>
+              {block.diagramPrompt && (
+                <div className="bg-amber-50 border border-amber-100 rounded px-3 py-2">
+                  <p className="text-xs font-medium text-amber-700 mb-1">Drawing instructions</p>
+                  <p className="text-xs text-amber-600 leading-relaxed">{block.diagramPrompt}</p>
+                </div>
+              )}
+              <button className="text-xs text-gray-400 hover:text-gray-600 border border-dashed border-gray-200 rounded py-2 transition-colors">
+                + Upload diagram image
+              </button>
+            </div>
           )}
 
-          {/* Note */}
-          {block.type === 'note' && (
-            <textarea
-              className="w-full bg-gray-800 text-white text-sm rounded-lg p-3 placeholder-gray-600 outline-none resize-none border border-gray-700 focus:border-gray-500 min-h-[80px]"
-              placeholder="Extra context, warnings, or side notes..."
-              value={block.body}
-              onChange={e => update({ body: e.target.value })}
-            />
-          )}
-
-          {/* Question Block */}
           {block.type === 'question' && (
-            <div className="flex flex-col gap-3">
-              {question ? (
-                <div className="bg-gray-800 rounded-lg p-3 border border-gray-700">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-xs text-purple-400 uppercase tracking-wide">{question.type}</span>
+            question ? (
+              <div className="border border-gray-200 rounded p-3">
+                <p className="text-xs text-gray-400 uppercase tracking-wide mb-1">{question.type}</p>
+                <p className="text-sm text-gray-800">{question.questionText || 'Question not set yet'}</p>
+                {question.options.length > 0 && (
+                  <div className="mt-2 flex flex-col gap-1">
+                    {question.options.map(opt => (
+                      <div key={opt.id} className="flex items-center gap-2">
+                        <div className={`w-3 h-3 rounded-full border shrink-0 ${question.correctAnswer === opt.id ? 'bg-gray-900 border-gray-900' : 'border-gray-300'}`} />
+                        <span className="text-xs text-gray-500">{opt.text || 'Option not set'}</span>
+                      </div>
+                    ))}
                   </div>
-                  <p className="text-sm text-white">
-                    {question.questionText || 'Question text not set yet — edit in Questions tab'}
-                  </p>
-                  {question.options.length > 0 && (
-                    <div className="mt-2 flex flex-col gap-1">
-                      {question.options.map(opt => (
-                        <div key={opt.id} className="flex items-center gap-2">
-                          <div className={`w-3 h-3 rounded-full border shrink-0 ${
-                            question.correctAnswer === opt.id
-                              ? 'bg-purple-500 border-purple-500'
-                              : 'border-gray-600'
-                          }`} />
-                          <span className="text-xs text-gray-400">{opt.text || 'Option not set'}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {question.explanation && (
-                    <p className="text-xs text-gray-500 mt-2 pt-2 border-t border-gray-700">
-                      {question.explanation}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <p className="text-sm text-gray-600">Question not found in bank.</p>
-              )}
-            </div>
+                )}
+              </div>
+            ) : <p className="text-sm text-gray-400">Question not found.</p>
           )}
 
-          {/* Flashcard Block */}
           {block.type === 'flashcard' && (
-            <div className="flex flex-col gap-3">
-              {flashcard ? (
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-gray-800 rounded-lg p-3 border border-gray-700">
-                    <p className="text-xs text-gray-500 mb-1">Front</p>
-                    <p className="text-sm text-white">{flashcard.front || 'Front not set yet'}</p>
-                  </div>
-                  <div className="bg-gray-800 rounded-lg p-3 border border-gray-700">
-                    <p className="text-xs text-gray-500 mb-1">Back</p>
-                    <p className="text-sm text-white">{flashcard.back || 'Back not set yet'}</p>
-                  </div>
+            flashcard ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="border border-gray-200 rounded p-3">
+                  <p className="text-xs text-gray-400 mb-1">Front</p>
+                  <p className="text-sm text-gray-800">{flashcard.front || 'Not set'}</p>
                 </div>
-              ) : (
-                <p className="text-sm text-gray-600">Flashcard not found in bank.</p>
-              )}
-            </div>
+                <div className="border border-gray-200 rounded p-3">
+                  <p className="text-xs text-gray-400 mb-1">Back</p>
+                  <p className="text-sm text-gray-800">{flashcard.back || 'Not set'}</p>
+                </div>
+              </div>
+            ) : <p className="text-sm text-gray-400">Flashcard not found.</p>
           )}
 
         </div>

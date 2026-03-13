@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Sparkles, X, Loader2 } from 'lucide-react'
-import { generateBlocksFromText } from '../../lib/deepseek'
+import { generateBlocksFromText } from '../../lib/anthropic'
 import type { ContentBlock } from '../../types/content'
 
 interface Props {
@@ -18,10 +18,8 @@ export default function GenerateFromText({ onGenerate, onClose, existingCount }:
     if (!text.trim()) return
     setLoading(true)
     setError('')
-
     try {
       const raw = await generateBlocksFromText(text)
-
       const blocks: ContentBlock[] = raw.map((item: any, index: number) => ({
         id: crypto.randomUUID(),
         type: item.type,
@@ -34,83 +32,55 @@ export default function GenerateFromText({ onGenerate, onClose, existingCount }:
           : item.type === 'example' ? [] : undefined,
         order: existingCount + index,
       }))
-
       onGenerate(blocks)
     } catch (err: any) {
-      setError(err.message || 'Something went wrong. Try again.')
+      setError(err.message || 'Something went wrong.')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div
-        className="bg-gray-900 border border-gray-800 rounded-xl p-6 w-[600px] flex flex-col gap-4"
-        onClick={e => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white border border-gray-200 rounded-lg p-5 w-[560px] shadow-lg flex flex-col gap-4" onClick={e => e.stopPropagation()}>
 
-        {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Sparkles size={16} className="text-purple-400" />
-            <h3 className="text-white font-semibold">Generate from Text</h3>
+            <Sparkles size={14} className="text-gray-500" />
+            <h3 className="text-sm font-semibold text-gray-900">Generate from Text</h3>
           </div>
-          <button onClick={onClose} className="text-gray-600 hover:text-gray-400">
-            <X size={16} />
-          </button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={15} /></button>
         </div>
 
-        <p className="text-gray-500 text-sm">
-          Paste in raw textbook content, lecture notes, or any source material. DeepSeek will extract and structure it into content blocks automatically.
+        <p className="text-xs text-gray-500">
+          Paste raw textbook or lecture content. Claude will extract and structure it into content blocks.
         </p>
 
-        {/* Text Input */}
         <textarea
-          className="w-full bg-gray-800 text-white text-sm rounded-lg p-4 placeholder-gray-600 outline-none resize-none border border-gray-700 focus:border-gray-500 min-h-[200px]"
-          placeholder="Paste your textbook text, notes, or any source material here..."
+          className="w-full text-sm text-gray-900 placeholder-gray-300 border border-gray-200 rounded p-3 outline-none resize-none min-h-[180px] focus:border-gray-400 transition-colors"
+          placeholder="Paste source material here..."
           value={text}
           onChange={e => setText(e.target.value)}
           disabled={loading}
         />
 
-        {error && (
-          <p className="text-red-400 text-sm">{error}</p>
-        )}
+        {error && <p className="text-xs text-red-500">{error}</p>}
 
-        {/* Actions */}
         <div className="flex items-center justify-between">
-          <p className="text-xs text-gray-600">
-            Blocks will be appended after your existing content
-          </p>
+          <p className="text-xs text-gray-400">Blocks appended after existing content</p>
           <div className="flex gap-2">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors"
-              disabled={loading}
-            >
+            <button onClick={onClose} className="text-xs text-gray-400 hover:text-gray-600 px-3 py-1.5" disabled={loading}>
               Cancel
             </button>
             <button
               onClick={handleGenerate}
               disabled={!text.trim() || loading}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm rounded-lg transition-colors"
+              className="flex items-center gap-1.5 text-xs bg-gray-900 text-white px-4 py-1.5 rounded hover:bg-gray-700 disabled:opacity-40 transition-colors"
             >
-              {loading ? (
-                <>
-                  <Loader2 size={14} className="animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                <>
-                  <Sparkles size={14} />
-                  Generate Blocks
-                </>
-              )}
+              {loading ? <><Loader2 size={12} className="animate-spin" />Generating...</> : <><Sparkles size={12} />Generate</>}
             </button>
           </div>
         </div>
-
       </div>
     </div>
   )

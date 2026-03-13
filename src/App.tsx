@@ -1,12 +1,20 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import TopicStudio from './pages/TopicStudio'
+import ProjectsHome from './pages/ProjectsHome'
+import ProjectDetail from './pages/ProjectDetail'
+import TopicDetail from './pages/TopicDetail'
+import SubtopicStudio from './pages/SubtopicStudio'
+import ImportCurriculum from './pages/ImportCurriculum'
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/topic/:topicId/*" element={<TopicStudio />} />
-        <Route path="*" element={<Navigate to="/topic/11111111-1111-1111-1111-111111111111" replace />} />
+        <Route path="/" element={<ProjectsHome />} />
+        <Route path="/import" element={<ImportCurriculum />} />
+        <Route path="/project/:projectId" element={<ProjectDetail />} />
+        <Route path="/project/:projectId/topic/:topicId" element={<TopicDetail />} />
+        <Route path="/project/:projectId/topic/:topicId/subtopic/:subtopicId/*" element={<SubtopicStudio />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   )

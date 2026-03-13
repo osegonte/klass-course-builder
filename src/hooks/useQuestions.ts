@@ -1,93 +1,113 @@
-import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+import { useState, useEffect, useCallback } from 'react'
+import { supabase, serviceClient } from '../lib/supabase'
 import type { Question } from '../types/content'
 
-export function useQuestions(topicId: string) {
+// KLASS draft questions live in cs_draft_questions (KLASS-only)
+// When exported, they get written to cs_questions (Jamsulator reads this)
+
+function rowToQuestion(row: any): Question {
+  return {
+    id: row.id,
+    type: row.type,
+    questionText: row.question_text,
+    options: row.options ?? [],
+    correctAnswer: row.correct_answer,
+    hint: row.hint ?? '',
+    status: row.status,
+    order: row.question_order,
+  }
+}
+
+export function useQuestions(subtopicId: string, subjectId?: string) {
   const [questions, setQuestions] = useState<Question[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    loadQuestions()
-  }, [topicId])
-
-  const loadQuestions = async () => {
-    setLoading(true)
+  const fetch = useCallback(async () => {
+    if (!subtopicId) return
     const { data, error } = await supabase
-      .from('questions')
+      .from('cs_draft_questions')
       .select('*')
-      .eq('topic_id', topicId)
-      .order('question_order', { ascending: true })
-
-    if (!error && data) {
-      setQuestions(data.map(row => ({
-        id: row.id,
-        type: row.type,
-        questionText: row.question_text,
-        options: row.options || [],
-        correctAnswer: row.correct_answer,
-        explanation: row.explanation,
-        imageUrl: row.image_url,
-        order: row.question_order,
-      })))
-    }
+      .eq('subtopic_id', subtopicId)
+      .order('question_order')
+    if (!error && data) setQuestions(data.map(rowToQuestion))
     setLoading(false)
+  }, [subtopicId])
+
+  useEffect(() => { fetch() }, [fetch])
+
+  const addQuestion = async (q: Question) => {
+    await supabase.from('cs_draft_questions').insert({
+      id: q.id,
+      subtopic_id: subtopicId,
+      subject_id: subjectId ?? null,
+      type: q.type,
+      question_text: q.questionText,
+      options: q.options,
+      correct_answer: q.correctAnswer,
+      hint: q.hint,
+      status: 'draft',
+      question_order: q.order,
+    })
+    await fetch()
   }
 
-  const addQuestion = async (question: Question) => {
-    setQuestions(prev => [...prev, question])
-
-    const { error } = await supabase
-      .from('questions')
-      .insert({
-        id: question.id,
-        topic_id: topicId,
-        type: question.type,
-        question_text: question.questionText,
-        options: question.options,
-        correct_answer: question.correctAnswer,
-        explanation: question.explanation,
-        image_url: question.imageUrl,
-        question_order: question.order,
-      })
-
-    if (error) {
-      console.error('Failed to save question:', error.message)
-      setQuestions(prev => prev.filter(q => q.id !== question.id))
-    }
-  }
-
-  const updateQuestion = async (updated: Question) => {
-    setQuestions(prev => prev.map(q => q.id === updated.id ? updated : q))
-
-    const { error } = await supabase
-      .from('questions')
-      .update({
-        type: updated.type,
-        question_text: updated.questionText,
-        options: updated.options,
-        correct_answer: updated.correctAnswer,
-        explanation: updated.explanation,
-        image_url: updated.imageUrl,
-        question_order: updated.order,
-      })
-      .eq('id', updated.id)
-
-    if (error) console.error('Failed to update question:', error.message)
+  const updateQuestion = async (q: Question) => {
+    await supabase.from('cs_draft_questions').update({
+      type: q.type,
+      question_text: q.questionText,
+      options: q.options,
+      correct_answer: q.correctAnswer,
+      hint: q.hint,
+      status: q.status,
+      question_order: q.order,
+    }).eq('id', q.id)
+    setQuestions(prev => prev.map(p => p.id === q.id ? q : p))
   }
 
   const deleteQuestion = async (id: string) => {
+    await supabase.from('cs_draft_questions').delete().eq('id', id)
     setQuestions(prev => prev.filter(q => q.id !== id))
-
-    const { error } = await supabase
-      .from('questions')
-      .delete()
-      .eq('id', id)
-
-    if (error) {
-      console.error('Failed to delete question:', error.message)
-      loadQuestions()
-    }
   }
 
-  return { questions, loading, addQuestion, updateQuestion, deleteQuestion }
+  // Mark a single draft question as ready
+  const markReady = async (id: string) => {
+    await supabase.from('cs_draft_questions').update({ status: 'ready' }).eq('id', id)
+    setQuestions(prev => prev.map(q => q.id === id ? { ...q, status: 'ready' } : q))
+  }
+
+  // Export one question to cs_questions (Jamsulator picks it up)
+  const exportQuestion = async (q: Question) => {
+    if (!subjectId) return
+    await serviceClient.from('cs_questions').insert({
+      subtopic_id: subtopicId,
+      subject_id: subjectId,
+      question_text: q.questionText,
+      options: q.options,
+      correct_answer: q.correctAnswer,
+      hint: q.hint,
+      type: q.type,
+      status: 'ready',
+    })
+    // Mark draft as exported
+    await supabase.from('cs_draft_questions').update({ status: 'exported' }).eq('id', q.id)
+    setQuestions(prev => prev.map(p => p.id === q.id ? { ...p, status: 'exported' } : p))
+  }
+
+  // Export all ready questions at once
+  const exportAllReady = async () => {
+    const ready = questions.filter(q => q.status === 'ready')
+    for (const q of ready) await exportQuestion(q)
+  }
+
+  return {
+    questions,
+    loading,
+    addQuestion,
+    updateQuestion,
+    deleteQuestion,
+    markReady,
+    exportQuestion,
+    exportAllReady,
+    refetch: fetch,
+  }
 }

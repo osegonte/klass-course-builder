@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { Plus, Sparkles } from 'lucide-react'
-import { useParams } from 'react-router-dom'
 import type { ContentBlock, BlockType, QuestionType } from '../../types/content'
 import { useContentBlocks } from '../../hooks/useContentBlocks'
 import { useQuestions } from '../../hooks/useQuestions'
@@ -10,28 +9,59 @@ import BlockTypeSelector from './BlockTypeSelector'
 import InlineQuestionPicker from './InlineQuestionPicker'
 import InlineFlashcardPicker from './InlineFlashcardPicker'
 import GenerateFromText from './GenerateFromText'
+import AILessonGenerator from './AILessonGenerator'
 
-export default function ContentBuilder() {
-  const { topicId } = useParams<{ topicId: string }>()
-  const { blocks, loading, addBlock, updateBlock, deleteBlock } = useContentBlocks(topicId!)
-  const { questions, addQuestion } = useQuestions(topicId!)
-  const { flashcards, addFlashcard } = useFlashcards(topicId!)
+import { useTopicRow, useSubtopicRow, useSubtopicsFromStructure } from '../../hooks/useStructure'
+import { useTopicIntro } from '../../hooks/useTopicIntro'
+import type { Sources } from './SourcesPanel'
+
+interface Props { subtopicId: string; subjectId: string; topicId?: string; subjectName?: string }
+
+export default function ContentBuilder({ subtopicId, subjectId, topicId, subjectName }: Props) {
+  const { blocks, loading, addBlock, updateBlock, deleteBlock } = useContentBlocks(subtopicId, subjectId)
+  const { questions, addQuestion } = useQuestions(subtopicId, subjectId)
+  const { flashcards, addFlashcard } = useFlashcards(subtopicId, subjectId)
+  const { topic } = useTopicRow(topicId ?? '')
+  const { subtopic } = useSubtopicRow(subtopicId)
+  const { intro: topicIntro } = useTopicIntro(topicId ?? '', subjectId)
+  const { subtopics: allSubtopics } = useSubtopicsFromStructure(topicId ?? '')
+
+  const topicSources: Sources | undefined = topicIntro ? {
+    transcript: topicIntro.source_transcript ?? '',
+    textbook: topicIntro.source_textbook ?? '',
+    extra: topicIntro.source_extra ?? '',
+  } : undefined
+
+  const topicContext = topicIntro && (topicIntro.overview || topicIntro.why_it_matters) ? {
+    overview: topicIntro.overview,
+    why_it_matters: topicIntro.why_it_matters,
+    prerequisites: topicIntro.prerequisites,
+  } : undefined
+
+  const chapterNumber = allSubtopics.findIndex(s => s.id === subtopicId) + 1 || undefined
+  const totalChapters = allSubtopics.length || undefined
 
   const [showSelector, setShowSelector] = useState(false)
   const [showQuestionPicker, setShowQuestionPicker] = useState(false)
   const [showFlashcardPicker, setShowFlashcardPicker] = useState(false)
   const [showGenerate, setShowGenerate] = useState(false)
+  const [showAIGenerator, setShowAIGenerator] = useState(false)
+
+  const handleAcceptAIBlocks = async (incoming: Omit<ContentBlock, 'id' | 'order'>[]) => {
+    for (let i = 0; i < incoming.length; i++) {
+      await addBlock({
+        ...incoming[i],
+        id: crypto.randomUUID(),
+        order: blocks.length + i,
+      } as ContentBlock)
+    }
+    setShowAIGenerator(false)
+  }
 
   const handleSelectType = (type: BlockType) => {
     setShowSelector(false)
-    if (type === 'question') {
-      setShowQuestionPicker(true)
-      return
-    }
-    if (type === 'flashcard') {
-      setShowFlashcardPicker(true)
-      return
-    }
+    if (type === 'question') { setShowQuestionPicker(true); return }
+    if (type === 'flashcard') { setShowFlashcardPicker(true); return }
     createBlock(type)
   }
 
@@ -62,7 +92,8 @@ export default function ContentBuilder() {
         ? [{ id: crypto.randomUUID(), text: '' }, { id: crypto.randomUUID(), text: '' }]
         : [],
       correctAnswer: '',
-      explanation: '',
+      hint: '',
+      status: 'draft' as const,
       order: questions.length,
     }
     await addQuestion(newQuestion)
@@ -76,78 +107,69 @@ export default function ContentBuilder() {
   }
 
   const handleCreateNewFlashcard = async () => {
-    const newCard = {
-      id: crypto.randomUUID(),
-      front: '',
-      back: '',
-      order: flashcards.length,
-    }
+    const newCard = { id: crypto.randomUUID(), front: '', back: '', order: flashcards.length }
     await addFlashcard(newCard)
     await createBlock('flashcard', { flashcardId: newCard.id })
     setShowFlashcardPicker(false)
   }
 
   const handleGenerate = async (generatedBlocks: ContentBlock[]) => {
-    for (const block of generatedBlocks) {
-      await addBlock(block)
-    }
+    for (const block of generatedBlocks) await addBlock(block)
     setShowGenerate(false)
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-600 text-sm">Loading...</div>
-      </div>
-    )
-  }
+  if (loading) return <div className="flex items-center justify-center h-48"><p className="text-sm text-gray-400">Loading...</p></div>
 
   return (
-    <div className="max-w-3xl mx-auto py-8 px-6">
+    <div className="max-w-2xl mx-auto py-10 px-6">
 
       {/* Header */}
-      <div className="mb-8 flex items-start justify-between">
+      <div className="flex items-center justify-between mb-8 pb-4 border-b border-gray-200">
         <div>
-          <h2 className="text-white text-xl font-semibold">Content Builder</h2>
-          <p className="text-gray-500 text-sm mt-1">
-            Build the learning experience block by block. Add content, questions, and flashcards in sequence.
-          </p>
+          <h2 className="text-base font-semibold text-gray-900">Content</h2>
+          <p className="text-xs text-gray-500 mt-0.5">Build the lesson block by block.</p>
         </div>
-        <button
-          onClick={() => setShowGenerate(true)}
-          className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm px-3 py-2 rounded-lg transition-colors shrink-0"
-        >
-          <Sparkles size={14} className="text-purple-400" />
-          Generate from text
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowAIGenerator(v => !v)}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded transition-colors border ${
+              showAIGenerator
+                ? 'bg-gray-900 text-white border-gray-900'
+                : 'text-gray-600 border-gray-300 hover:border-gray-400'
+            }`}
+          >
+            <Sparkles size={12} />
+            AI Generate
+          </button>
+        </div>
       </div>
 
-      {/* Empty State */}
+      {/* Empty */}
       {blocks.length === 0 && (
-        <div className="border border-dashed border-gray-800 rounded-xl p-12 flex flex-col items-center justify-center text-center">
-          <div className="text-gray-600 text-sm mb-2">No blocks yet. Start building your topic.</div>
-          <div className="text-gray-700 text-xs mb-6">Add blocks manually or generate from text using AI.</div>
-          <div className="flex items-center gap-3">
+        <div className="border border-dashed border-gray-300 rounded p-12 text-center">
+          <p className="text-sm text-gray-500 mb-1">No content blocks yet.</p>
+          <p className="text-xs text-gray-400 mb-6">Add blocks manually or generate from source text.</p>
+          <div className="flex items-center justify-center gap-3">
             <button
               onClick={() => setShowSelector(true)}
-              className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white text-sm px-4 py-2 rounded-lg transition-colors"
+              className="flex items-center gap-1.5 text-xs bg-gray-900 text-white px-4 py-2 rounded hover:bg-gray-700 transition-colors"
             >
-              <Plus size={16} />
-              Add First Block
+              <Plus size={13} />
+              Add Block
             </button>
             <button
-              onClick={() => setShowGenerate(true)}
-              className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm px-4 py-2 rounded-lg transition-colors"
+              onClick={() => setShowAIGenerator(true)}
+              className="flex items-center gap-1.5 text-xs border border-gray-300 text-gray-600 px-4 py-2 rounded hover:border-gray-400 transition-colors"
             >
-              <Sparkles size={14} className="text-purple-400" />
-              Generate from text
+              <Sparkles size={12} />
+              AI Generate
             </button>
           </div>
         </div>
       )}
 
-      {/* Block List */}
-      <div className="flex flex-col gap-4">
+      {/* Blocks */}
+      <div className="flex flex-col gap-3">
         {blocks.map(block => (
           <ContentBlockCard
             key={block.id}
@@ -160,25 +182,17 @@ export default function ContentBuilder() {
         ))}
       </div>
 
-      {/* Add Block Button */}
       {blocks.length > 0 && (
         <button
           onClick={() => setShowSelector(true)}
-          className="mt-6 w-full flex items-center justify-center gap-2 border border-dashed border-gray-800 hover:border-purple-500 text-gray-600 hover:text-purple-400 text-sm py-3 rounded-xl transition-colors"
+          className="mt-4 w-full flex items-center justify-center gap-2 border border-dashed border-gray-300 hover:border-gray-500 text-gray-400 hover:text-gray-600 text-xs py-3 rounded transition-colors"
         >
-          <Plus size={16} />
+          <Plus size={13} />
           Add Block
         </button>
       )}
 
-      {/* Modals */}
-      {showSelector && (
-        <BlockTypeSelector
-          onSelect={handleSelectType}
-          onClose={() => setShowSelector(false)}
-        />
-      )}
-
+      {showSelector && <BlockTypeSelector onSelect={handleSelectType} onClose={() => setShowSelector(false)} />}
       {showQuestionPicker && (
         <InlineQuestionPicker
           questions={questions}
@@ -187,7 +201,6 @@ export default function ContentBuilder() {
           onClose={() => setShowQuestionPicker(false)}
         />
       )}
-
       {showFlashcardPicker && (
         <InlineFlashcardPicker
           flashcards={flashcards}
@@ -196,7 +209,6 @@ export default function ContentBuilder() {
           onClose={() => setShowFlashcardPicker(false)}
         />
       )}
-
       {showGenerate && (
         <GenerateFromText
           onGenerate={handleGenerate}
@@ -205,6 +217,22 @@ export default function ContentBuilder() {
         />
       )}
 
+      {showAIGenerator && (
+        <div className="mt-6">
+          <AILessonGenerator
+            subtopicName={subtopic?.name ?? ''}
+            topicName={topic?.name ?? ''}
+            subjectName={subjectName}
+            objectives={topic?.objectives ?? []}
+            topicSources={topicSources}
+            topicContext={topicContext}
+            chapterNumber={chapterNumber}
+            totalChapters={totalChapters}
+            onAcceptBlocks={handleAcceptAIBlocks}
+            onClose={() => setShowAIGenerator(false)}
+          />
+        </div>
+      )}
     </div>
   )
 }

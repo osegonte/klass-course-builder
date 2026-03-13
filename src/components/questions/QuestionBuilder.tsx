@@ -1,14 +1,14 @@
 import { useState } from 'react'
 import { Plus } from 'lucide-react'
-import { useParams } from 'react-router-dom'
 import type { Question, QuestionType } from '../../types/content'
 import { useQuestions } from '../../hooks/useQuestions'
 import QuestionCard from './QuestionCard'
 import QuestionTypeSelector from './QuestionTypeSelector'
 
-export default function QuestionBuilder() {
-  const { topicId } = useParams<{ topicId: string }>()
-  const { questions, loading, addQuestion, updateQuestion, deleteQuestion } = useQuestions(topicId!)
+interface Props { subtopicId: string; subjectId: string }
+
+export default function QuestionBuilder({ subtopicId, subjectId }: Props) {
+  const { questions, loading, addQuestion, updateQuestion, deleteQuestion } = useQuestions(subtopicId, subjectId)
   const [showSelector, setShowSelector] = useState(false)
 
   const handleAdd = async (type: QuestionType) => {
@@ -17,51 +17,52 @@ export default function QuestionBuilder() {
       type,
       questionText: '',
       options: type === 'mcq' || type === 'multiselect'
-        ? [
-            { id: crypto.randomUUID(), text: '' },
-            { id: crypto.randomUUID(), text: '' },
-          ]
+        ? [{ id: crypto.randomUUID(), text: '' }, { id: crypto.randomUUID(), text: '' }]
         : [],
       correctAnswer: '',
-      explanation: '',
+      hint: '',
+      status: 'draft',
       order: questions.length,
     }
     await addQuestion(newQuestion)
     setShowSelector(false)
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-600 text-sm">Loading...</div>
-      </div>
-    )
-  }
+  if (loading) return <div className="flex items-center justify-center h-48"><p className="text-sm text-gray-400">Loading...</p></div>
 
   return (
-    <div className="max-w-3xl mx-auto py-8 px-6">
+    <div className="max-w-2xl mx-auto py-10 px-6">
 
-      <div className="mb-8">
-        <h2 className="text-white text-xl font-semibold">Question Builder</h2>
-        <p className="text-gray-500 text-sm mt-1">
-          Create questions for this topic. You'll place them into the content flow in the Placement section.
-        </p>
+      <div className="flex items-center justify-between mb-8 pb-4 border-b border-gray-200">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900">Questions</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {questions.length} question{questions.length !== 1 ? 's' : ''} · questions sync to Jamsulator automatically when ready
+          </p>
+        </div>
+        <button
+          onClick={() => setShowSelector(true)}
+          className="flex items-center gap-1.5 text-xs bg-gray-900 text-white px-3 py-1.5 rounded hover:bg-gray-700 transition-colors"
+        >
+          <Plus size={13} />
+          Add Question
+        </button>
       </div>
 
       {questions.length === 0 && (
-        <div className="border border-dashed border-gray-800 rounded-xl p-12 flex flex-col items-center justify-center text-center">
-          <div className="text-gray-600 text-sm mb-4">No questions yet. Start building your question bank.</div>
+        <div className="border border-dashed border-gray-300 rounded p-12 text-center">
+          <p className="text-sm text-gray-500 mb-4">No questions yet.</p>
           <button
             onClick={() => setShowSelector(true)}
-            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white text-sm px-4 py-2 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 text-xs bg-gray-900 text-white px-4 py-2 rounded hover:bg-gray-700 transition-colors mx-auto"
           >
-            <Plus size={16} />
+            <Plus size={13} />
             Add First Question
           </button>
         </div>
       )}
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3">
         {questions.map((question, index) => (
           <QuestionCard
             key={question.id}
@@ -76,20 +77,16 @@ export default function QuestionBuilder() {
       {questions.length > 0 && (
         <button
           onClick={() => setShowSelector(true)}
-          className="mt-6 w-full flex items-center justify-center gap-2 border border-dashed border-gray-800 hover:border-purple-500 text-gray-600 hover:text-purple-400 text-sm py-3 rounded-xl transition-colors"
+          className="mt-4 w-full flex items-center justify-center gap-2 border border-dashed border-gray-300 hover:border-gray-500 text-gray-400 hover:text-gray-600 text-xs py-3 rounded transition-colors"
         >
-          <Plus size={16} />
+          <Plus size={13} />
           Add Question
         </button>
       )}
 
       {showSelector && (
-        <QuestionTypeSelector
-          onSelect={handleAdd}
-          onClose={() => setShowSelector(false)}
-        />
+        <QuestionTypeSelector onSelect={handleAdd} onClose={() => setShowSelector(false)} />
       )}
-
     </div>
   )
 }

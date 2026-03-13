@@ -1,20 +1,14 @@
-import { useParams } from 'react-router-dom'
 import { Plus, Trash2 } from 'lucide-react'
 import type { Flashcard } from '../../types/content'
 import { useFlashcards } from '../../hooks/useFlashcards'
 
-export default function FlashcardBuilder() {
-  const { topicId } = useParams<{ topicId: string }>()
-  const { flashcards, loading, addFlashcard, updateFlashcard, deleteFlashcard } = useFlashcards(topicId!)
+interface Props { subtopicId: string; subjectId: string }
+
+export default function FlashcardBuilder({ subtopicId, subjectId }: Props) {
+  const { flashcards, loading, addFlashcard, updateFlashcard, deleteFlashcard } = useFlashcards(subtopicId, subjectId)
 
   const handleAdd = async () => {
-    const newCard: Flashcard = {
-      id: crypto.randomUUID(),
-      front: '',
-      back: '',
-      order: flashcards.length,
-    }
-    await addFlashcard(newCard)
+    await addFlashcard({ id: crypto.randomUUID(), front: '', back: '', order: flashcards.length })
   }
 
   const update = (id: string, fields: Partial<Flashcard>) => {
@@ -22,75 +16,67 @@ export default function FlashcardBuilder() {
     if (card) updateFlashcard({ ...card, ...fields })
   }
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-600 text-sm">Loading...</div>
-      </div>
-    )
-  }
+  if (loading) return <div className="flex items-center justify-center h-48"><p className="text-sm text-gray-400">Loading...</p></div>
 
   return (
-    <div className="max-w-3xl mx-auto py-8 px-6">
+    <div className="max-w-2xl mx-auto py-10 px-6">
 
-      <div className="mb-8">
-        <h2 className="text-white text-xl font-semibold">Flashcard Builder</h2>
-        <p className="text-gray-500 text-sm mt-1">
-          Create flashcards for key concepts. Students use these to reinforce memory.
-        </p>
+      <div className="flex items-center justify-between mb-8 pb-4 border-b border-gray-200">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900">Flashcards</h2>
+          <p className="text-xs text-gray-500 mt-0.5">Key concept recall cards for this subtopic.</p>
+        </div>
+        <button
+          onClick={handleAdd}
+          className="flex items-center gap-1.5 text-xs bg-gray-900 text-white px-3 py-1.5 rounded hover:bg-gray-700 transition-colors"
+        >
+          <Plus size={13} />
+          Add Card
+        </button>
       </div>
 
       {flashcards.length === 0 && (
-        <div className="border border-dashed border-gray-800 rounded-xl p-12 flex flex-col items-center justify-center text-center">
-          <div className="text-gray-600 text-sm mb-4">No flashcards yet. Add your first one.</div>
+        <div className="border border-dashed border-gray-300 rounded p-12 text-center">
+          <p className="text-sm text-gray-500 mb-4">No flashcards yet.</p>
           <button
             onClick={handleAdd}
-            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-500 text-white text-sm px-4 py-2 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 text-xs bg-gray-900 text-white px-4 py-2 rounded hover:bg-gray-700 transition-colors mx-auto"
           >
-            <Plus size={16} />
-            Add First Flashcard
+            <Plus size={13} />
+            Add First Card
           </button>
         </div>
       )}
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3">
         {flashcards.map((card, index) => (
-          <div key={card.id} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-
-            {/* Card Header */}
-            <div className="flex items-center gap-3 px-4 py-3 border-b border-gray-800">
-              <span className="text-xs text-gray-600">Card {index + 1}</span>
-              <div className="flex-1" />
-              <button
-                onClick={() => deleteFlashcard(card.id)}
-                className="text-gray-600 hover:text-red-400 transition-colors"
-              >
-                <Trash2 size={15} />
+          <div key={card.id} className="bg-white border border-gray-200 rounded overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100 bg-stone-50">
+              <span className="text-xs text-gray-400">Card {index + 1}</span>
+              <button onClick={() => deleteFlashcard(card.id)} className="text-gray-300 hover:text-red-400 transition-colors">
+                <Trash2 size={13} />
               </button>
             </div>
-
-            {/* Card Body */}
-            <div className="p-4 grid grid-cols-2 gap-4">
-              <div className="flex flex-col gap-2">
-                <label className="text-xs text-gray-500 font-medium">Front</label>
+            <div className="grid grid-cols-2 divide-x divide-gray-100">
+              <div className="p-4">
+                <p className="text-xs font-medium text-gray-400 mb-2 uppercase tracking-wide">Front</p>
                 <textarea
-                  className="w-full bg-gray-800 text-white text-sm rounded-lg p-3 placeholder-gray-600 outline-none resize-none border border-gray-700 focus:border-gray-500 min-h-[100px]"
-                  placeholder="Term, concept, or question..."
+                  className="w-full text-sm text-gray-900 placeholder-gray-300 outline-none resize-none min-h-[80px] bg-transparent"
+                  placeholder="Term or concept..."
                   value={card.front}
                   onChange={e => update(card.id, { front: e.target.value })}
                 />
               </div>
-              <div className="flex flex-col gap-2">
-                <label className="text-xs text-gray-500 font-medium">Back</label>
+              <div className="p-4">
+                <p className="text-xs font-medium text-gray-400 mb-2 uppercase tracking-wide">Back</p>
                 <textarea
-                  className="w-full bg-gray-800 text-white text-sm rounded-lg p-3 placeholder-gray-600 outline-none resize-none border border-gray-700 focus:border-gray-500 min-h-[100px]"
-                  placeholder="Definition, answer, or explanation..."
+                  className="w-full text-sm text-gray-900 placeholder-gray-300 outline-none resize-none min-h-[80px] bg-transparent"
+                  placeholder="Definition or answer..."
                   value={card.back}
                   onChange={e => update(card.id, { back: e.target.value })}
                 />
               </div>
             </div>
-
           </div>
         ))}
       </div>
@@ -98,13 +84,12 @@ export default function FlashcardBuilder() {
       {flashcards.length > 0 && (
         <button
           onClick={handleAdd}
-          className="mt-6 w-full flex items-center justify-center gap-2 border border-dashed border-gray-800 hover:border-purple-500 text-gray-600 hover:text-purple-400 text-sm py-3 rounded-xl transition-colors"
+          className="mt-4 w-full flex items-center justify-center gap-2 border border-dashed border-gray-300 hover:border-gray-500 text-gray-400 hover:text-gray-600 text-xs py-3 rounded transition-colors"
         >
-          <Plus size={16} />
-          Add Flashcard
+          <Plus size={13} />
+          Add Card
         </button>
       )}
-
     </div>
   )
 }

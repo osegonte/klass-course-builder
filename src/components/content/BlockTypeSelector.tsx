@@ -1,14 +1,14 @@
 import type { BlockType } from '../../types/content'
 
-const blockTypes: { type: BlockType; label: string; description: string; color: string; group: string }[] = [
-  { type: 'definition', label: 'Definition', description: 'Define a concept clearly', color: 'bg-purple-500/10 border-purple-500/30 text-purple-300', group: 'content' },
-  { type: 'explanation', label: 'Explanation', description: 'Explain intuitively with scenarios', color: 'bg-purple-400/10 border-purple-400/20 text-purple-400', group: 'content' },
-  { type: 'formula', label: 'Formula', description: 'Formula with breakdown', color: 'bg-gray-800 border-gray-600 text-gray-300', group: 'content' },
-  { type: 'example', label: 'Example', description: 'Step by step worked example', color: 'bg-gray-700/30 border-gray-600/30 text-gray-300', group: 'content' },
-  { type: 'keypoint', label: 'Key Point', description: 'Critical thing to remember', color: 'bg-purple-300/10 border-purple-300/20 text-purple-300', group: 'content' },
-  { type: 'note', label: 'Note', description: 'Extra context or warning', color: 'bg-gray-800/50 border-gray-700 text-gray-500', group: 'content' },
-  { type: 'question', label: 'Question', description: 'Inline question from bank or new', color: 'bg-purple-600/10 border-purple-600/30 text-purple-300', group: 'interactive' },
-  { type: 'flashcard', label: 'Flashcard', description: 'Inline flashcard for quick recall', color: 'bg-gray-600/10 border-gray-600/30 text-gray-300', group: 'interactive' },
+const blockTypes: { type: BlockType; label: string; description: string; group: string }[] = [
+  { type: 'definition', label: 'Definition', description: 'Define a concept clearly', group: 'content' },
+  { type: 'explanation', label: 'Explanation', description: 'Explain with context or analogy', group: 'content' },
+  { type: 'formula', label: 'Formula', description: 'Formula with variable breakdown', group: 'content' },
+  { type: 'example', label: 'Example', description: 'Step-by-step worked example', group: 'content' },
+  { type: 'keypoint', label: 'Key Point', description: 'Critical thing to remember', group: 'content' },
+  { type: 'note', label: 'Note', description: 'Extra context or caution', group: 'content' },
+  { type: 'question', label: 'Question', description: 'Inline question from bank', group: 'interactive' },
+  { type: 'flashcard', label: 'Flashcard', description: 'Inline flashcard for recall', group: 'interactive' },
 ]
 
 interface Props {
@@ -21,39 +21,37 @@ export default function BlockTypeSelector({ onSelect, onClose }: Props) {
   const interactiveBlocks = blockTypes.filter(b => b.group === 'interactive')
 
   return (
-    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 w-[500px]" onClick={e => e.stopPropagation()}>
-        
-        <h3 className="text-white font-semibold mb-4">Add Block</h3>
+    <div className="fixed inset-0 bg-black/20 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white border border-gray-200 rounded-lg p-5 w-[440px] shadow-lg" onClick={e => e.stopPropagation()}>
+        <h3 className="text-sm font-semibold text-gray-900 mb-4">Add Block</h3>
 
-        <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide">Content</p>
-        <div className="grid grid-cols-2 gap-2 mb-4">
-          {contentBlocks.map(({ type, label, description, color }) => (
+        <p className="text-xs text-gray-400 uppercase tracking-widest mb-2">Content</p>
+        <div className="grid grid-cols-2 gap-1.5 mb-4">
+          {contentBlocks.map(({ type, label, description }) => (
             <button
               key={type}
               onClick={() => onSelect(type)}
-              className={`border rounded-lg p-3 text-left hover:opacity-90 transition-opacity ${color}`}
+              className="border border-gray-200 rounded p-3 text-left hover:border-gray-400 hover:bg-stone-50 transition-colors"
             >
-              <div className="font-medium text-sm">{label}</div>
-              <div className="text-xs opacity-70 mt-0.5">{description}</div>
+              <div className="text-sm font-medium text-gray-800">{label}</div>
+              <div className="text-xs text-gray-400 mt-0.5">{description}</div>
             </button>
           ))}
         </div>
 
-        <p className="text-xs text-gray-500 mb-2 uppercase tracking-wide">Interactive</p>
-        <div className="grid grid-cols-2 gap-2">
-          {interactiveBlocks.map(({ type, label, description, color }) => (
+        <p className="text-xs text-gray-400 uppercase tracking-widest mb-2">Interactive</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {interactiveBlocks.map(({ type, label, description }) => (
             <button
               key={type}
               onClick={() => onSelect(type)}
-              className={`border rounded-lg p-3 text-left hover:opacity-90 transition-opacity ${color}`}
+              className="border border-gray-200 rounded p-3 text-left hover:border-gray-400 hover:bg-stone-50 transition-colors"
             >
-              <div className="font-medium text-sm">{label}</div>
-              <div className="text-xs opacity-70 mt-0.5">{description}</div>
+              <div className="text-sm font-medium text-gray-800">{label}</div>
+              <div className="text-xs text-gray-400 mt-0.5">{description}</div>
             </button>
           ))}
         </div>
-
       </div>
     </div>
   )
