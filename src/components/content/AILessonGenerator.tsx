@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Sparkles, Loader2, ChevronRight, Edit3, Check, AlertTriangle, Image } from 'lucide-react'
 import SourcesPanel, { type Sources } from './SourcesPanel'
-import { prepareSources, generateLessonFromSources, type GeneratedBlock } from '../../lib/anthropic'
+import { preprocessSources, generateLesson, type GeneratedBlock } from '../../lib/anthropic'
 import type { ContentBlock } from '../../types/content'
 
 interface Props {
@@ -10,7 +10,6 @@ interface Props {
   subjectName?: string
   objectives: string[]
   topicSources?: Sources
-  topicContext?: { overview: string; why_it_matters: string; prerequisites: string }
   chapterNumber?: number
   totalChapters?: number
   onAcceptBlocks: (blocks: Omit<ContentBlock, 'id' | 'order'>[]) => void
@@ -20,7 +19,7 @@ interface Props {
 type Step = 'sources' | 'preparing' | 'review-notes' | 'generating' | 'review-blocks' | 'done'
 
 export default function AILessonGenerator({
-  subtopicName, topicName, subjectName, objectives, topicSources, topicContext, chapterNumber, totalChapters, onAcceptBlocks, onClose
+  subtopicName, topicName, subjectName, objectives, topicSources, chapterNumber, totalChapters, onAcceptBlocks, onClose
 }: Props) {
 
   const [step, setStep] = useState<Step>('sources')
@@ -38,17 +37,17 @@ export default function AILessonGenerator({
     setError('')
     setStep('preparing')
     try {
-      const notes = await prepareSources({
-        subtopicName,
+      const notes = await preprocessSources({
+        level: 'subtopic',
+        name: subtopicName,
         topicName,
         subjectName,
         objectives,
-        topicContext,
         chapterNumber,
         totalChapters,
-        transcript: sources.transcript || undefined,
-        textbook: sources.textbook || undefined,
-        extra: sources.extra || undefined,
+        sourceTranscript: sources.transcript || undefined,
+        sourceTextbook: sources.textbook || undefined,
+        sourceExtra: sources.extra || undefined,
       })
       setCleanNotes(notes)
       setStep('review-notes')
@@ -63,16 +62,15 @@ export default function AILessonGenerator({
     setError('')
     setStep('generating')
     try {
-      const blocks = await generateLessonFromSources({
-        subtopicName,
+      const blocks = await generateLesson({
+        level: 'subtopic',
+        name: subtopicName,
         topicName,
         subjectName,
         objectives,
-        topicContext,
         chapterNumber,
         totalChapters,
-        cleanNotes,
-      })
+      }, cleanNotes)
       setGeneratedBlocks(blocks)
       setStep('review-blocks')
     } catch (err: any) {

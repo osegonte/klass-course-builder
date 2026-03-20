@@ -1,12 +1,16 @@
 import { buildFullSystemPrompt } from './professorKlass'
 
 const ANTHROPIC_API_KEY = import.meta.env.VITE_ANTHROPIC_API_KEY
-const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
-const MODEL = 'claude-sonnet-4-20250514'
+const ANTHROPIC_URL     = 'https://api.anthropic.com/v1/messages'
+const MODEL             = 'claude-sonnet-4-5'
 
 // ── Shared fetch wrapper ──────────────────────────────────────────────────────
 
-async function claudeJSON<T>(prompt: string, systemPrompt?: string): Promise<T> {
+async function claudeJSON<T>(
+  prompt: string,
+  systemPrompt?: string,
+  maxTokens = 8096
+): Promise<T> {
   const response = await fetch(ANTHROPIC_URL, {
     method: 'POST',
     headers: {
@@ -17,70 +21,84 @@ async function claudeJSON<T>(prompt: string, systemPrompt?: string): Promise<T> 
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 8096,
+      max_tokens: maxTokens,
       system: systemPrompt ?? buildFullSystemPrompt(),
       messages: [{ role: 'user', content: prompt }],
     }),
   })
 
-  if (!response.ok) {
-    throw new Error(`Anthropic API error: ${response.status} ${response.statusText}`)
+  if (!response.ok) throw new Error(`Anthropic API error: ${response.status} ${response.statusText}`)
+
+  const data    = await response.json()
+  const content = data.content[0].text as string
+
+  // Robust JSON extraction — handles markdown fences and partial wrapping
+  const tryParse = (s: string): T | null => {
+    try { return JSON.parse(s) } catch { return null }
   }
 
+  // Try raw first
+  let result = tryParse(content)
+  if (result) return result
+
+  // Strip markdown code fences
+  const stripped = content.replace(/^```(?:json)?\s*/m, '').replace(/\s*```$/m, '').trim()
+  result = tryParse(stripped)
+  if (result) return result
+
+  // Extract first JSON array or object
+  const arrMatch = content.match(/\[([\s\S]*?)\](?=[^\[\]]*$)/)
+  if (arrMatch) {
+    result = tryParse(arrMatch[0])
+    if (result) return result
+  }
+  const objMatch = content.match(/\{[\s\S]*\}/)
+  if (objMatch) {
+    result = tryParse(objMatch[0])
+    if (result) return result
+  }
+
+  throw new Error('Failed to parse Claude response as JSON. Response may be too long or malformed.')
+}
+
+async function claudeText(
+  prompt: string,
+  systemPrompt?: string,
+  maxTokens = 4096
+): Promise<string> {
+  const response = await fetch(ANTHROPIC_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': ANTHROPIC_API_KEY,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: maxTokens,
+      system: systemPrompt ?? buildFullSystemPrompt(),
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  })
+
+  if (!response.ok) throw new Error(`Anthropic API error: ${response.status} ${response.statusText}`)
   const data = await response.json()
-  const content: string = data.content[0].text
-
-  try {
-    return JSON.parse(content)
-  } catch {
-    const match = content.match(/\[[\s\S]*\]|\{[\s\S]*\}/)
-    if (match) return JSON.parse(match[0])
-    throw new Error('Failed to parse Claude response as JSON')
-  }
+  return data.content[0].text as string
 }
 
-// ── 1. Generate content blocks from raw text ─────────────────────────────────
 
-export async function generateBlocksFromText(rawText: string) {
-  const prompt = `You are an expert curriculum designer. Given the following raw textbook or lecture text, extract and structure it into a sequence of learning blocks.
+// ── Types ─────────────────────────────────────────────────────────────────────
 
-Return ONLY a valid JSON array. No markdown, no explanation, just the raw JSON array.
-
-Each block must follow this exact structure:
-- type: one of "definition", "explanation", "formula", "example", "keypoint", "note"
-- title: short title for the block
-- body: main content
-- analogy: (only for definition) a simple analogy to help understanding, or null
-- breakdown: (only for formula) explanation of each variable, or null
-- steps: (only for example) array of { expression: string, talkingPoint: string }, or null
-
-Example output:
-[
-  {
-    "type": "definition",
-    "title": "Quadratic Equation",
-    "body": "A polynomial equation of degree 2 in the form ax² + bx + c = 0",
-    "analogy": "Like a parabola describing the path of a thrown ball",
-    "breakdown": null,
-    "steps": null
-  },
-  {
-    "type": "formula",
-    "title": "Quadratic Formula",
-    "body": "x = (-b ± √(b²-4ac)) / 2a",
-    "analogy": null,
-    "breakdown": "a, b, c are coefficients. The ± means there are two possible solutions.",
-    "steps": null
-  }
-]
-
-Now process this text:
-${rawText}`
-
-  return claudeJSON<any[]>(prompt)
+export interface GeneratedBlock {
+  type: 'definition' | 'explanation' | 'formula' | 'example' | 'keypoint' | 'note' | 'diagram'
+  title: string
+  body: string
+  analogy?: string | null
+  breakdown?: string | null
+  steps?: { expression: string; talkingPoint: string }[] | null
+  diagramPrompt?: string | null
 }
-
-// ── 2. Generate questions from a subtopic's content + objectives ──────────────
 
 export interface GeneratedQuestion {
   type: 'mcq' | 'truefalse' | 'fillingap'
@@ -88,6 +106,184 @@ export interface GeneratedQuestion {
   options: { id: string; text: string }[]
   correct_answer: string
   hint: string
+}
+
+export interface CourseGenerationParams {
+  // What we're generating
+  level:         'topic' | 'subtopic'
+  name:          string        // topic name or subtopic name
+  topicName:     string        // always the parent topic name
+  subjectName?:  string
+
+  // Context
+  overview?:      string
+  objectives?:    string[]
+  prerequisites?: string[]     // names of prerequisite topics
+
+  // Position in course
+  chapterNumber?: number
+  totalChapters?: number
+
+  // Source material (all optional)
+  sourceTextbook?:   string
+  sourceTranscript?: string
+  sourceExtra?:      string
+}
+
+
+// ── PASS 1: Preprocess sources into clean structured notes ───────────────────
+// Organises raw material around objectives without adding anything new.
+// Output is readable text the teacher can review/edit before generation.
+
+export async function preprocessSources(params: CourseGenerationParams): Promise<string> {
+  const hasMaterial = params.sourceTextbook || params.sourceTranscript || params.sourceExtra
+
+  // If no material provided, generate from Professor Klass's knowledge directly
+  if (!hasMaterial) {
+    return `[SELF-CONTAINED: No source material provided. Generation will use Professor KLASS's expert knowledge of ${params.subjectName ?? 'this subject'} directly.]
+
+Topic: ${params.topicName}
+${params.level === 'subtopic' ? `Subtopic: ${params.name}` : ''}
+Overview: ${params.overview ?? 'Not provided'}
+Objectives: ${params.objectives?.join('; ') ?? 'Not specified'}
+Prerequisites: ${params.prerequisites?.join(', ') ?? 'None specified'}`
+  }
+
+  const parts: string[] = []
+  if (params.sourceTranscript) parts.push(`=== TRANSCRIPT ===\n${params.sourceTranscript}`)
+  if (params.sourceTextbook)   parts.push(`=== TEXTBOOK EXTRACT ===\n${params.sourceTextbook}`)
+  if (params.sourceExtra)      parts.push(`=== ADDITIONAL NOTES ===\n${params.sourceExtra}`)
+
+  const prompt = `You are preparing teaching notes for a secondary school teacher.
+
+${params.level === 'topic'
+  ? `COURSE: ${params.name} (this is the full topic course - be comprehensive)`
+  : `TOPIC: ${params.topicName}\nSUBTOPIC: ${params.name} (this is a deep-dive into one specific concept)`
+}
+${params.overview ? `Overview: ${params.overview}` : ''}
+Learning Objectives: ${params.objectives?.join('; ') ?? 'Not specified'}
+${params.prerequisites?.length ? `Prerequisites (DO NOT re-teach these): ${params.prerequisites.join(', ')}` : ''}
+
+From the raw source materials below:
+1. Extract ONLY what is relevant to the ${params.level === 'topic' ? 'course' : 'subtopic'}
+2. Organise it around the learning objectives
+3. Remove filler, repetition, off-topic content
+4. Add short analogies where they would help (clearly marked [ANALOGY])
+5. Flag gaps with [GAP: what is missing]
+6. Do NOT invent content - only structure what exists
+
+Output clean, structured teaching notes with clear headings.
+
+SOURCE MATERIALS:
+${parts.join('\n\n')}`
+
+  return claudeText(prompt, buildFullSystemPrompt(params.subjectName), 4096)
+}
+
+
+// ── PASS 2: Generate lesson blocks from clean notes ───────────────────────────
+// Produces the final content blocks ready to save to the database.
+
+export async function generateLesson(
+  params: CourseGenerationParams,
+  cleanNotes: string
+): Promise<GeneratedBlock[]> {
+
+  const isFullCourse = params.level === 'topic'
+
+  const prompt = `You are building a ${isFullCourse ? 'FULL COURSE' : 'SUBTOPIC LESSON'} for Nigerian secondary school students (SS1–SS3, WAEC/JAMB level).
+
+${isFullCourse
+  ? `COURSE: ${params.name} (Subject: ${params.subjectName ?? 'unknown'})\nThis is the COMPLETE course on ${params.name}. Cover everything comprehensively.`
+  : `TOPIC: ${params.topicName}\nSUBTOPIC: ${params.name}${params.chapterNumber ? ` - Chapter ${params.chapterNumber} of ${params.totalChapters}` : ''}\nThis is a DEEP DIVE into one specific concept. Assume the topic foundation is already established.`
+}
+
+${params.overview ? `Overview: ${params.overview}` : ''}
+Learning Objectives: ${params.objectives?.length ? params.objectives.join('; ') : 'Not specified'}
+${params.prerequisites?.length ? `Prerequisites (already covered - reference briefly if needed, never re-teach): ${params.prerequisites.join(', ')}` : ''}
+
+TEACHING NOTES (generate ONLY from this material):
+${cleanNotes}
+
+REQUIRED SEQUENCE - follow this order exactly:
+1. definition(s) - what it is
+2. explanation - why it works, how to think about it
+3. formula - if applicable
+4. example - worked step-by-step
+5. keypoint - single most important thing
+6. note - common mistakes / exam traps (if relevant)
+7. diagram - where a visual would genuinely help
+
+Return ONLY a valid JSON array. No markdown, no explanation.
+
+Block shapes:
+- definition:  { type, title, body, analogy }
+- explanation: { type, title, body }
+- formula:     { type, title, body (LaTeX), breakdown }
+- example:     { type, title, body, steps: [{ expression, talkingPoint }] }
+- keypoint:    { type, title, body }
+- note:        { type, title, body }
+- diagram:     { type, title, body: "what it shows", diagramPrompt: "how to draw it" }
+
+Quality rules:
+- Concrete before abstract - analogy before formula
+- One idea fully explained before introducing the next
+- If notes say [GAP] - skip that section, do not hallucinate
+- Use Nigerian context where natural (not forced)
+- Formula body field must be valid LaTeX string
+
+Generate now:`
+
+  return claudeJSON<GeneratedBlock[]>(prompt, buildFullSystemPrompt(params.subjectName), 8096)
+}
+
+
+// ── Generate questions for a lesson ──────────────────────────────────────────
+
+export async function generateQuestions(
+  params: CourseGenerationParams,
+  contentSummary: string,
+  count = 4
+): Promise<GeneratedQuestion[]> {
+
+  const prompt = `Generate exactly ${count} multiple choice questions for Nigerian SS1–SS3 students (WAEC/JAMB level).
+
+${params.level === 'topic' ? `Course: ${params.name}` : `Topic: ${params.topicName}\nSubtopic: ${params.name}`}
+Learning Objectives: ${params.objectives?.join('; ') ?? 'Not specified'}
+
+Content covered:
+${contentSummary}
+
+Rules:
+- Questions must directly test the learning objectives
+- Options must be plausible distractors - no obviously wrong answers
+- Range from recall to application difficulty
+- Hints are ONE sentence: what concept did the question test, NOT the answer
+
+Return ONLY valid JSON array:
+[{
+  "type": "mcq",
+  "question_text": "...",
+  "options": [{ "id": "a", "text": "..." }, { "id": "b", "text": "..." }, { "id": "c", "text": "..." }, { "id": "d", "text": "..." }],
+  "correct_answer": "a",
+  "hint": "..."
+}]`
+
+  return claudeJSON<GeneratedQuestion[]>(prompt, buildFullSystemPrompt(params.subjectName))
+}
+
+
+// ── Legacy helpers (kept for backward compatibility) ─────────────────────────
+
+export async function generateBlocksFromText(rawText: string) {
+  const prompt = `Extract and structure the following text into a sequence of learning blocks.
+
+Return ONLY a valid JSON array. Each block:
+{ type: "definition"|"explanation"|"formula"|"example"|"keypoint"|"note", title, body, analogy?, breakdown?, steps? }
+
+TEXT:
+${rawText}`
+  return claudeJSON<GeneratedBlock[]>(prompt)
 }
 
 export async function generateQuestionsFromSubtopic(
@@ -98,215 +294,49 @@ export async function generateQuestionsFromSubtopic(
   count = 5,
   subjectName?: string
 ): Promise<GeneratedQuestion[]> {
-  const prompt = `You are an expert exam question writer for Nigerian secondary school students (JAMB/WAEC level).
+  return generateQuestions(
+    { level: 'subtopic', name: subtopicName, topicName, subjectName, objectives },
+    contentSummary,
+    count
+  )
+}
 
-Topic: ${topicName}
-Subtopic: ${subtopicName}
-Learning Objectives: ${objectives.length > 0 ? objectives.join(', ') : 'Not specified'}
-Content: ${contentSummary}
 
-Generate exactly ${count} multiple choice questions (MCQ) that test understanding of this subtopic. Questions should range from recall to application difficulty.
+// ── Generate course overview from topic name alone ────────────────────────────
 
-Return ONLY a valid JSON array. No markdown, no explanation.
+export interface GeneratedOverview {
+  overview:      string
+  objectives:    string[]
+  prerequisites: string[]  // topic names to search for in KLASS
+}
 
-Each question must follow this exact structure:
+export async function generateCourseOverview(params: {
+  topicName:   string
+  subjectName?: string
+  level:       'topic' | 'subtopic'
+}): Promise<GeneratedOverview> {
+  const isTopic = params.level === 'topic'
+
+  const prompt = `You are building a course outline for a Nigerian secondary school student (SS1–SS3, WAEC/JAMB level).
+
+${isTopic
+  ? `Course topic: ${params.topicName} (Subject: ${params.subjectName ?? 'unknown'})`
+  : `Subtopic: ${params.topicName} (Subject: ${params.subjectName ?? 'unknown'})`
+}
+
+Generate the following in JSON format:
+
 {
-  "type": "mcq",
-  "question_text": "The question",
-  "options": [
-    { "id": "a", "text": "Option A" },
-    { "id": "b", "text": "Option B" },
-    { "id": "c", "text": "Option C" },
-    { "id": "d", "text": "Option D" }
+  "overview": "2-3 sentence description of what this ${isTopic ? 'course' : 'subtopic'} covers and why it matters to students. Be specific to Nigerian SS1-SS3 curriculum.",
+  "objectives": [
+    "By the end of this, students should be able to... (5-7 specific, measurable objectives)"
   ],
-  "correct_answer": "a",
-  "hint": "One sentence — what concept did this question test, without giving the full explanation"
+  "prerequisites": [
+    "List of topic names a student should have covered first (just the topic names, e.g. 'Cell Biology', 'Basic Algebra'). Max 4. If this is a foundational topic with no prerequisites, return an empty array []."
+  ]
 }
 
-Ensure:
-- Options are plausible distractors, not obviously wrong
-- Hints are ONE sentence max — tell the student what concept they missed, not the full answer. Example: "This tests whether you know the chain rule applies to composite functions." The full explanation lives in the course, not here.
-- Questions directly test the objectives if provided`
+Return ONLY valid JSON. No markdown, no explanation.`
 
-  return claudeJSON<GeneratedQuestion[]>(prompt, buildFullSystemPrompt(subjectName))
-}
-
-// ── 3. Generate a full lesson outline for a subtopic ─────────────────────────
-
-export interface LessonOutlineBlock {
-  type: string
-  title: string
-  description: string
-}
-
-export async function generateLessonOutline(
-  topicName: string,
-  subtopicName: string,
-  objectives: string[]
-): Promise<LessonOutlineBlock[]> {
-  const prompt = `You are a curriculum designer. Create a lesson outline for the following subtopic.
-
-Topic: ${topicName}
-Subtopic: ${subtopicName}
-Objectives: ${objectives.length > 0 ? objectives.join(', ') : 'Not specified'}
-
-Return ONLY a valid JSON array of content blocks that should be created for this lesson. No markdown, no explanation.
-
-Each item should be:
-{
-  "type": "definition" | "explanation" | "formula" | "example" | "keypoint" | "note",
-  "title": "Block title",
-  "description": "One sentence describing what this block should cover"
-}
-
-Produce a logical teaching sequence: start with definitions, build up to explanations and formulas, include worked examples, end with key points.`
-
-  return claudeJSON<LessonOutlineBlock[]>(prompt)
-}
-
-
-// ── 4. PASS 1 — Clean raw sources into structured notes ───────────────────────
-// Input: raw YouTube transcript + raw textbook text + topic context
-// Output: clean structured notes the teacher can review and edit before generation
-
-export async function prepareSources(params: {
-  subtopicName: string
-  topicName: string
-  subjectName?: string
-  objectives: string[]
-  transcript?: string
-  textbook?: string
-  extra?: string
-  topicContext?: { overview: string; why_it_matters: string; prerequisites: string }
-  chapterNumber?: number
-  totalChapters?: number
-}): Promise<string> {
-  const { subtopicName, topicName, objectives, transcript, textbook, extra, topicContext, chapterNumber, totalChapters } = params
-
-  const parts: string[] = []
-  if (transcript) parts.push(`=== YOUTUBE TRANSCRIPT ===\n${transcript}`)
-  if (textbook) parts.push(`=== TEXTBOOK EXTRACT ===\n${textbook}`)
-  if (extra) parts.push(`=== ADDITIONAL NOTES ===\n${extra}`)
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': import.meta.env.VITE_ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 8096,
-      system: buildFullSystemPrompt(params.subjectName),
-      messages: [{
-        role: 'user',
-        content: `You are preparing teaching notes for a secondary school teacher.
-
-Topic: ${topicName}
-Subtopic: ${subtopicName}${chapterNumber ? ` (Chapter ${chapterNumber} of ${totalChapters})` : ''}
-Learning Objectives: ${objectives.length > 0 ? objectives.join('; ') : 'Not specified'}${topicContext?.overview ? `
-
-COURSE CONTEXT (this subtopic is part of a larger course on ${topicName}):
-- Course overview: ${topicContext.overview}
-- Why it matters: ${topicContext.why_it_matters}
-- Prerequisites: ${topicContext.prerequisites}
-
-Use this context to ensure the lesson feels connected to the course — don't repeat the overview but build naturally from it.` : ''}
-
-You have been given raw source materials below. Your job is to:
-1. Extract ONLY the concepts, explanations, and examples that are relevant to the subtopic
-2. Remove all filler, repetition, and off-topic content
-3. Organise what remains into clean structured notes
-4. Do NOT add anything that is not in the source materials
-5. Flag any gap with [GAP: what is missing] so the teacher knows
-
-Format the output as clean readable notes with clear headings. This is NOT the final lesson — it is a reference the teacher will review before the lesson is generated.
-
-SOURCE MATERIALS:
-${parts.join('\n\n')}`,
-      }],
-    }),
-  })
-
-  if (!response.ok) throw new Error(`Anthropic API error: ${response.status}`)
-  const data = await response.json()
-  return data.content[0].text as string
-}
-
-
-// ── 5. PASS 2 — Generate full lesson blocks from clean notes + objectives ──────
-// Input: clean notes (output of pass 1, possibly edited by teacher) + objectives
-// Output: structured content blocks ready to save to cs_content_blocks
-
-export interface GeneratedBlock {
-  type: 'definition' | 'explanation' | 'formula' | 'example' | 'keypoint' | 'note' | 'diagram'
-  title: string
-  body: string
-  analogy?: string | null
-  breakdown?: string | null
-  steps?: { expression: string; talkingPoint: string }[] | null
-  diagramPrompt?: string | null  // for diagram placeholders
-}
-
-export async function generateLessonFromSources(params: {
-  subtopicName: string
-  topicName: string
-  subjectName?: string
-  objectives: string[]
-  cleanNotes: string
-  topicContext?: { overview: string; why_it_matters: string; prerequisites: string }
-  chapterNumber?: number
-  totalChapters?: number
-}): Promise<GeneratedBlock[]> {
-  const { subtopicName, topicName, objectives, cleanNotes, topicContext, chapterNumber, totalChapters } = params
-
-  const prompt = `You are an expert curriculum designer building a lesson for Nigerian secondary school students (SS1–SS3, WAEC/JAMB level).
-
-Topic: ${topicName}
-Subtopic: ${subtopicName}${chapterNumber ? ` — Chapter ${chapterNumber} of ${totalChapters}` : ''}
-Learning Objectives: ${objectives.length > 0 ? objectives.join('; ') : 'Not specified'}${topicContext?.overview ? `
-
-COURSE CONTEXT:
-This lesson is chapter ${chapterNumber ?? '?'} in a course on ${topicName}.
-Course overview: ${topicContext.overview}
-Why it matters: ${topicContext.why_it_matters}
-Prerequisites: ${topicContext.prerequisites}
-
-The lesson should feel like a natural continuation of the course — assume students have read the course intro and understand the bigger picture. Don't re-explain the overall topic, dive into the chapter.` : ''}
-
-TEACHING NOTES (use ONLY what is in here — do not add outside knowledge):
-${cleanNotes}
-
-Build a complete lesson as a sequence of content blocks. Rules:
-- Break every concept down simply — explain it like the student has never seen it before
-- Use concrete analogies and real-world examples where possible
-- Where a diagram would genuinely help understanding, insert a diagram block with a clear description
-- Follow a logical teaching sequence: concept → explanation → worked example → key points
-- Do NOT hallucinate — if the notes don't cover something clearly, skip it or flag it with [INCOMPLETE]
-
-Return ONLY a valid JSON array. No markdown, no explanation, just raw JSON.
-
-Block types and their fields:
-
-definition → { type, title, body, analogy }
-explanation → { type, title, body }
-formula → { type, title, body, breakdown }
-example → { type, title, body, steps: [{ expression, talkingPoint }] }
-keypoint → { type, title, body }
-note → { type, title, body }
-diagram → { type, title, body: "description of what the diagram should show", diagramPrompt: "detailed instruction for drawing/creating the diagram" }
-
-Example diagram block:
-{
-  "type": "diagram",
-  "title": "Area Under a Curve",
-  "body": "A graph showing the shaded region between f(x) and the x-axis from x=a to x=b, representing the definite integral.",
-  "diagramPrompt": "Draw a smooth curve f(x) above the x-axis. Shade the area between x=a and x=b. Label the x-axis, y-axis, the curve as f(x), and mark points a and b on the x-axis. Add the integral notation below."
-}
-
-Now generate the lesson blocks:`
-
-  return claudeJSON<GeneratedBlock[]>(prompt, buildFullSystemPrompt(params.subjectName))
+  return claudeJSON<GeneratedOverview>(prompt, buildFullSystemPrompt(params.subjectName))
 }

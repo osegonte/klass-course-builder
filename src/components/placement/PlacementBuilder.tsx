@@ -1,154 +1,112 @@
-import { useParams } from 'react-router-dom'
 import { useContentBlocks } from '../../hooks/useContentBlocks'
 import { useQuestions } from '../../hooks/useQuestions'
 import { usePlacements } from '../../hooks/usePlacements'
 
-const blockLabels: Record<string, string> = {
-  definition: 'Definition',
+interface Props { subtopicId: string }
+
+const BLOCK_LABELS: Record<string, string> = {
+  definition:  'Definition',
   explanation: 'Explanation',
-  formula: 'Formula',
-  example: 'Example',
-  keypoint: 'Key Point',
-  note: 'Note',
+  formula:     'Formula',
+  example:     'Example',
+  keypoint:    'Key Point',
+  note:        'Note',
+  diagram:     'Diagram',
 }
 
-const blockColors: Record<string, string> = {
-  definition: 'text-purple-300',
-  explanation: 'text-purple-400',
-  formula: 'text-gray-300',
-  example: 'text-gray-300',
-  keypoint: 'text-purple-300',
-  note: 'text-gray-500',
-}
-
-export default function PlacementBuilder() {
-  const { topicId } = useParams<{ topicId: string }>()
-  const { blocks, loading: blocksLoading } = useContentBlocks(topicId!)
-  const { questions, loading: questionsLoading } = useQuestions(topicId!)
-  const { placements, loading: placementsLoading, addPlacement, removePlacement } = usePlacements(topicId!)
+export default function PlacementBuilder({ subtopicId }: Props) {
+  const { blocks,     loading: blocksLoading     } = useContentBlocks(subtopicId)
+  const { questions,  loading: questionsLoading  } = useQuestions(subtopicId)
+  const { placements, loading: placementsLoading, addPlacement, removePlacement } = usePlacements(subtopicId)
 
   const loading = blocksLoading || questionsLoading || placementsLoading
 
-  const getPlacementForQuestion = (questionId: string) => {
-    return placements.find(p => p.questionId === questionId)
-  }
+  if (loading) return (
+    <div className="flex items-center justify-center h-48">
+      <p className="text-sm text-gray-400">Loading…</p>
+    </div>
+  )
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-gray-600 text-sm">Loading...</div>
-      </div>
-    )
-  }
+  if (questions.length === 0) return (
+    <div className="max-w-2xl mx-auto py-10 px-6">
+      <EmptyState message="No questions yet. Build questions first, then come back to place them." />
+    </div>
+  )
 
-  if (questions.length === 0) {
-    return (
-      <div className="max-w-3xl mx-auto py-8 px-6">
-        <div className="mb-8">
-          <h2 className="text-white text-xl font-semibold">Question Placement</h2>
-          <p className="text-gray-500 text-sm mt-1">Pin questions to content blocks to control when students see them.</p>
-        </div>
-        <div className="border border-dashed border-gray-800 rounded-xl p-12 text-center">
-          <p className="text-gray-600 text-sm">No questions yet. Build your questions first then come back to place them.</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (blocks.length === 0) {
-    return (
-      <div className="max-w-3xl mx-auto py-8 px-6">
-        <div className="mb-8">
-          <h2 className="text-white text-xl font-semibold">Question Placement</h2>
-          <p className="text-gray-500 text-sm mt-1">Pin questions to content blocks to control when students see them.</p>
-        </div>
-        <div className="border border-dashed border-gray-800 rounded-xl p-12 text-center">
-          <p className="text-gray-600 text-sm">No content blocks yet. Build your content first then come back to place questions.</p>
-        </div>
-      </div>
-    )
-  }
+  if (blocks.length === 0) return (
+    <div className="max-w-2xl mx-auto py-10 px-6">
+      <EmptyState message="No content blocks yet. Build content first, then come back to place questions." />
+    </div>
+  )
 
   return (
-    <div className="max-w-3xl mx-auto py-8 px-6">
-
-      <div className="mb-8">
-        <h2 className="text-white text-xl font-semibold">Question Placement</h2>
-        <p className="text-gray-500 text-sm mt-1">
-          For each question, choose which content block it appears after.
+    <div className="max-w-2xl mx-auto py-10 px-6">
+      <div className="mb-6">
+        <h2 className="text-sm font-semibold text-gray-900">Question Placement</h2>
+        <p className="text-xs text-gray-400 mt-0.5">
+          Choose which content block each question appears after in the student flow.
         </p>
       </div>
 
       <div className="flex flex-col gap-3">
         {questions.map((question, index) => {
-          const placement = getPlacementForQuestion(question.id)
+          const placement = placements.find(p => p.questionId === question.id)
+          const placedBlock = placement?.afterBlockId
+            ? blocks.find(b => b.id === placement.afterBlockId)
+            : null
 
           return (
-            <div key={question.id} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-              <div className="flex items-start gap-4">
-
-                {/* Question info */}
+            <div key={question.id} className="bg-white border border-gray-200 rounded p-4 flex flex-col gap-3">
+              <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs text-gray-600">Q{index + 1}</span>
-                    <span className="text-xs text-gray-600 uppercase tracking-wide">{question.type}</span>
+                    <span className="text-xs text-gray-400">Q{index + 1}</span>
+                    <span className="text-xs text-gray-400 uppercase tracking-wide">{question.type}</span>
                   </div>
-                  <p className="text-sm text-gray-300 truncate">
-                    {question.questionText || 'Untitled question'}
-                  </p>
+                  <p className="text-sm text-gray-800 truncate">{question.questionText || 'Untitled question'}</p>
                 </div>
 
-                {/* Block selector */}
-                <div className="flex items-center gap-2 shrink-0">
-                  <select
-                    className="bg-gray-800 text-white text-sm rounded-lg px-3 py-2 border border-gray-700 outline-none focus:border-gray-500"
-                    value={placement?.blockId || ''}
-                    onChange={e => {
-                      if (e.target.value === '') {
-                        removePlacement(question.id)
-                      } else {
-                        addPlacement(question.id, e.target.value)
-                      }
-                    }}
-                  >
-                    <option value="">Not placed</option>
-                    {blocks.map(block => (
+                <select
+                  className="border border-gray-200 rounded px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900 shrink-0"
+                  value={placement?.afterBlockId ?? ''}
+                  onChange={e => {
+                    if (e.target.value === '') removePlacement(question.id)
+                    else addPlacement(question.id, e.target.value)
+                  }}
+                >
+                  <option value="">Not placed</option>
+                  <option value="__top__">At the very start</option>
+                  {blocks
+                    .filter(b => !['question', 'flashcard'].includes(b.type))
+                    .map(block => (
                       <option key={block.id} value={block.id}>
-                        After: {block.title || blockLabels[block.type]}
+                        After: {block.title || BLOCK_LABELS[block.type] || block.type}
                       </option>
-                    ))}
-                  </select>
-
-                  {placement && (
-                    <span className="text-xs text-purple-400 whitespace-nowrap">Placed</span>
-                  )}
-                </div>
-
+                    ))
+                  }
+                </select>
               </div>
 
-              {/* Show which block it's placed after */}
               {placement && (
-                <div className="mt-3 pt-3 border-t border-gray-800">
-                  {(() => {
-                    const block = blocks.find(b => b.id === placement.blockId)
-                    return block ? (
-                      <p className="text-xs text-gray-600">
-                        Appears after{' '}
-                        <span className={`font-medium ${blockColors[block.type]}`}>
-                          {block.title || blockLabels[block.type]}
-                        </span>
-                        {' '}({blockLabels[block.type]})
-                      </p>
-                    ) : null
-                  })()}
-                </div>
+                <p className="text-xs text-gray-400 border-t border-gray-100 pt-2">
+                  {placedBlock
+                    ? <>Appears after <span className="font-medium text-gray-600">{placedBlock.title || BLOCK_LABELS[placedBlock.type]}</span></>
+                    : 'Appears at the very start'
+                  }
+                </p>
               )}
-
             </div>
           )
         })}
       </div>
+    </div>
+  )
+}
 
+function EmptyState({ message }: { message: string }) {
+  return (
+    <div className="border border-dashed border-gray-300 rounded p-10 text-center">
+      <p className="text-sm text-gray-400">{message}</p>
     </div>
   )
 }

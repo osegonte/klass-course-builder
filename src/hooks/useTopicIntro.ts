@@ -1,72 +1,95 @@
-// Topic-level intro blocks — stored in cs_content_blocks with level='topic'
-// These appear before chapter 1, setting the stage for the whole course.
-
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import type { CSTopicIntro } from '../types/content'
 
-export interface TopicIntro {
-  id: string
-  topic_id: string
-  subject_id: string
-  overview: string
-  why_it_matters: string
-  prerequisites: string
-  // Source materials stored at topic level — subtopics can inherit these
-  source_transcript: string
-  source_textbook: string
-  source_extra: string
-  updated_at: string
+function rowToIntro(row: any): CSTopicIntro {
+  return {
+    id:               row.id,
+    topicId:          row.topic_id,
+    overview:         row.overview         ?? '',
+    whyItMatters:     row.why_it_matters   ?? '',
+    prerequisites:    row.prerequisites    ?? '',
+    sourceTextbook:   row.source_textbook  ?? '',
+    sourceTranscript: row.source_transcript ?? '',
+    sourceExtra:      row.source_extra     ?? '',
+    isComplete:       row.is_complete      ?? false,
+    updatedAt:        row.updated_at,
+  }
 }
 
-const EMPTY_INTRO = (topicId: string, subjectId: string): Omit<TopicIntro, 'updated_at'> => ({
-  id: crypto.randomUUID(),
-  topic_id: topicId,
-  subject_id: subjectId,
-  overview: '',
-  why_it_matters: '',
-  prerequisites: '',
-  source_transcript: '',
-  source_textbook: '',
-  source_extra: '',
-})
-
-export function useTopicIntro(topicId: string, subjectId: string) {
-  const [intro, setIntro] = useState<TopicIntro | null>(null)
+export function useTopicIntro(topicId: string) {
+  const [intro,   setIntro]   = useState<CSTopicIntro | null>(null)
   const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
+  const [saving,  setSaving]  = useState(false)
 
-  useEffect(() => {
+  const fetch = useCallback(async () => {
     if (!topicId) return
     setLoading(true)
-    supabase
-      .from('cs_topic_intros')
+    const { data } = await supabase
+      .from('topic_intros')
       .select('*')
       .eq('topic_id', topicId)
       .maybeSingle()
-      .then(({ data }) => {
-        setIntro(data ?? null)
-        setLoading(false)
-      })
+    setIntro(data ? rowToIntro(data) : null)
+    setLoading(false)
   }, [topicId])
 
-  const save = async (updates: Partial<TopicIntro>) => {
+  useEffect(() => { fetch() }, [fetch])
+
+  const save = async (updates: {
+    overview?:         string
+    whyItMatters?:     string
+    prerequisites?:    string
+    sourceTextbook?:   string
+    sourceTranscript?: string
+    sourceExtra?:      string
+    objectives?:       string[]
+    isComplete?:       boolean
+  }) => {
+    if (!topicId) return false
     setSaving(true)
-    const payload = {
-      ...EMPTY_INTRO(topicId, subjectId),
-      ...intro,
-      ...updates,
-      topic_id: topicId,
-      subject_id: subjectId,
-      updated_at: new Date().toISOString(),
+
+    const payload: any = {
+      topic_id:         topicId,
+      overview:         updates.overview         ?? intro?.overview         ?? '',
+      why_it_matters:   updates.whyItMatters     ?? intro?.whyItMatters     ?? '',
+      prerequisites:    updates.prerequisites    ?? intro?.prerequisites    ?? '',
+      source_textbook:  updates.sourceTextbook   ?? intro?.sourceTextbook   ?? '',
+      source_transcript:updates.sourceTranscript ?? intro?.sourceTranscript ?? '',
+      source_extra:     updates.sourceExtra      ?? intro?.sourceExtra      ?? '',
+      is_complete:      updates.isComplete       ?? intro?.isComplete       ?? false,
     }
+
+    // Save objectives to both topic_intros and topics table
+    if (updates.objectives !== undefined) {
+      payload.objectives = updates.objectives
+      // Also sync to topics.objectives for quick access
+      await supabase
+        .from('topics')
+        .update({ objectives: updates.objectives, description: payload.overview })
+        .eq('id', topicId)
+    }
+
     const { data, error } = await supabase
-      .from('cs_topic_intros')
+      .from('topic_intros')
       .upsert(payload, { onConflict: 'topic_id' })
       .select()
       .single()
-    if (!error && data) setIntro(data)
+
+    if (!error && data) {
+      setIntro({ ...rowToIntro(data), })
+    }
     setSaving(false)
+    return !error
   }
 
-  return { intro, loading, saving, save }
+  const markComplete = async () => {
+    const saved = await save({ isComplete: true })
+    if (saved) {
+      await supabase.from('topics').update({ intro_complete: true }).eq('id', topicId)
+    }
+    return saved
+  }
+
+  return { intro, loading, saving, save, markComplete, refetch: fetch }
 }

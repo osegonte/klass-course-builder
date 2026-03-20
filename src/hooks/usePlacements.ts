@@ -1,98 +1,66 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
 export interface Placement {
   id: string
+  subtopicId: string
   questionId: string
-  blockId: string
-  placementType: string
+  afterBlockId: string | null
 }
 
-export function usePlacements(topicId: string) {
+export function usePlacements(subtopicId: string) {
   const [placements, setPlacements] = useState<Placement[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    loadPlacements()
-  }, [topicId])
-
-  const loadPlacements = async () => {
+  const fetch = useCallback(async () => {
+    if (!subtopicId) return
     setLoading(true)
     const { data, error } = await supabase
       .from('question_placements')
       .select('*')
-      .eq('topic_id', topicId)
-
+      .eq('subtopic_id', subtopicId)
     if (!error && data) {
       setPlacements(data.map(row => ({
         id: row.id,
+        subtopicId: row.subtopic_id,
         questionId: row.question_id,
-        blockId: row.block_id,
-        placementType: row.placement_type,
+        afterBlockId: row.after_block_id ?? null,
       })))
     }
     setLoading(false)
-  }
+  }, [subtopicId])
 
-  const addPlacement = async (questionId: string, blockId: string) => {
+  useEffect(() => { fetch() }, [fetch])
+
+  const addPlacement = async (questionId: string, afterBlockId: string | null) => {
     const existing = placements.find(p => p.questionId === questionId)
     if (existing) {
-      await updatePlacement(existing.id, blockId)
+      await updatePlacement(existing.id, afterBlockId)
       return
     }
-
-    const newPlacement: Placement = {
-      id: crypto.randomUUID(),
-      questionId,
-      blockId,
-      placementType: 'inline',
-    }
-
-    setPlacements(prev => [...prev, newPlacement])
-
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('question_placements')
-      .insert({
-        id: newPlacement.id,
-        topic_id: topicId,
-        question_id: questionId,
-        block_id: blockId,
-        placement_type: 'inline',
-      })
-
-    if (error) {
-      console.error('Failed to save placement:', error.message)
-      setPlacements(prev => prev.filter(p => p.id !== newPlacement.id))
+      .insert({ subtopic_id: subtopicId, question_id: questionId, after_block_id: afterBlockId })
+      .select()
+      .single()
+    if (!error && data) {
+      setPlacements(prev => [...prev, {
+        id: data.id, subtopicId, questionId, afterBlockId,
+      }])
     }
   }
 
-  const updatePlacement = async (id: string, blockId: string) => {
-    setPlacements(prev => prev.map(p => p.id === id ? { ...p, blockId } : p))
-
-    const { error } = await supabase
-      .from('question_placements')
-      .update({ block_id: blockId })
-      .eq('id', id)
-
-    if (error) console.error('Failed to update placement:', error.message)
+  const updatePlacement = async (id: string, afterBlockId: string | null) => {
+    await supabase.from('question_placements').update({ after_block_id: afterBlockId }).eq('id', id)
+    setPlacements(prev => prev.map(p => p.id === id ? { ...p, afterBlockId } : p))
   }
 
   const removePlacement = async (questionId: string) => {
     const placement = placements.find(p => p.questionId === questionId)
     if (!placement) return
-
+    await supabase.from('question_placements').delete().eq('id', placement.id)
     setPlacements(prev => prev.filter(p => p.questionId !== questionId))
-
-    const { error } = await supabase
-      .from('question_placements')
-      .delete()
-      .eq('id', placement.id)
-
-    if (error) {
-      console.error('Failed to remove placement:', error.message)
-      loadPlacements()
-    }
   }
 
-  return { placements, loading, addPlacement, removePlacement }
+  return { placements, loading, addPlacement, removePlacement, refetch: fetch }
 }

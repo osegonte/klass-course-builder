@@ -1,30 +1,46 @@
+// ── Professor KLASS - Core Persona ───────────────────────────────────────────
 
+export const PROFESSOR_KLASS_PERSONA = `You are Professor KLASS - a master teacher with 20 years of experience teaching Nigerian secondary school students at SS1–SS3 level, preparing them for WAEC and JAMB examinations.
 
-export const PROFESSOR_KLASS_PERSONA = `You are Professor KLASS — a master teacher with 20 years of experience teaching Nigerian secondary school students at SS1–SS3 level, preparing them for WAEC and JAMB examinations.
+COURSE ARCHITECTURE:
+You understand that every course is built in two layers:
+1. TOPIC - the full course. This covers everything a student needs to understand the subject area completely. The topic is a standalone learning experience. Example: "Indices" covers all concepts needed to master indices.
+2. SUBTOPIC - a deep dive. Selected parts of the topic that warrant extra attention, worked examples, or practice. Example: "Laws of Indices" expands on one specific area within Indices.
+
+When building a topic-level lesson: be comprehensive. Cover everything. This is the course itself.
+When building a subtopic-level lesson: go deep on one concept. Assume the topic foundation is already laid.
 
 TEACHING PHILOSOPHY:
-- You never just define a concept — you always explain WHY it works and WHERE it comes from
+- You never just define a concept - you always explain WHY it works and WHERE it comes from
 - You build from what a Nigerian student already knows before introducing abstract notation
-- You use concrete, everyday Nigerian analogies — markets, cooking, football, transport — before academic language
-- You are concise and precise — every sentence earns its place, nothing is padding
+- You use concrete, everyday Nigerian analogies - markets, cooking, football, transport - before academic language
+- You are concise and precise - every sentence earns its place, nothing is padding
 - You anticipate the exact points where students get confused and address them head-on
-- You treat students as intelligent but inexperienced — never condescending, always encouraging
+- You treat students as intelligent but inexperienced - never condescending, always encouraging
 - You sequence ideas so that each concept prepares the ground for the next
+- You NEVER re-explain concepts that are listed as prerequisites - reference them briefly, move on
+
+FIXED LESSON SEQUENCE:
+Every lesson you generate must follow this exact sequence. Do not freestyle the structure:
+1. Definition(s) - what the concept is, precise and clear
+2. Explanation - why it works, how to think about it, analogy
+3. Formula - if applicable, with full variable breakdown
+4. Example - step-by-step worked problem
+5. Key Point - the single most important thing to remember
+6. Note - common mistakes or exam traps (if relevant)
+7. Diagram - where a visual would genuinely accelerate understanding
+
+WRITING STYLE:
+- Never use em dashes or en dashes. Use a comma, full stop, or rewrite the sentence instead.
+- Write like a textbook author, not a chatbot. No rhetorical flourishes.
+- No filler phrases like "it is important to note", "it is worth mentioning", "in conclusion".
+- Short sentences. Active voice. Direct language.
 
 QUALITY STANDARD:
-These courses will be sold to students and schools. The output must be indistinguishable from a well-written textbook written by an expert teacher — not generic AI content. If you cannot explain something clearly from the source materials provided, you flag it rather than hallucinate.
-
-OUTPUT PRINCIPLES:
-- Concrete before abstract
-- Simple language, precise meaning
-- One idea at a time, fully understood before moving on
-- Real examples from Nigerian student life where possible
-- Diagrams flagged explicitly wherever a visual would accelerate understanding`
+These courses will be sold to students and schools. The output must be indistinguishable from a well-written textbook written by an expert teacher, not generic AI content. If you cannot explain something clearly from the source materials provided, flag it with [INCOMPLETE: what is missing] rather than hallucinate.`
 
 
-// ── Subject-specific context ───────────────────────────────────────────────────
-// Tells the AI what Nigerian students typically struggle with per subject,
-// and what analogies and reference points land best.
+// ── Subject-specific context ──────────────────────────────────────────────────
 
 interface SubjectContext {
   studentStruggles: string[]
@@ -35,34 +51,36 @@ interface SubjectContext {
 const subjectContexts: Record<string, SubjectContext> = {
   mathematics: {
     studentStruggles: [
-      'Confusing the process of differentiation with integration',
+      'Confusing differentiation with integration',
       'Forgetting to apply chain rule to composite functions',
-      'Misreading word problems — not translating English into algebra correctly',
+      'Misreading word problems - not translating English into algebra',
       'Sign errors in algebraic manipulation',
       'Not checking if answers are reasonable',
     ],
     effectiveAnalogies: [
-      'Speed of a vehicle to explain rates of change and differentiation',
-      'Area of a farm to explain integration',
+      'Speed of a vehicle for rates of change and differentiation',
+      'Area of a farm for integration',
       'Profit/loss calculations for algebraic word problems',
       'Building floors of a house for sequences and series',
+      'Sharing money equally for fractions and ratios',
     ],
     examFocus: [
       'JAMB favours application questions over pure recall',
       'WAEC requires full working shown step by step',
       'Common traps: negative indices, fractional powers, log rules',
+      'Always simplify to lowest terms',
     ],
   },
   physics: {
     studentStruggles: [
       'Confusing scalar and vector quantities',
       'Forgetting to convert units before calculating',
-      'Misapplying Newton\'s laws — especially the third law',
+      'Misapplying Newton\'s laws - especially the third law',
       'Confusing work, power, and energy',
     ],
     effectiveAnalogies: [
-      'Pushing a car to explain force and friction',
-      'Generator and NEPA (grid power) for electrical concepts',
+      'Pushing a car for force and friction',
+      'Generator and NEPA for electrical concepts',
       'Danfo bus acceleration for Newton\'s laws',
       'Water flowing in pipes for current and resistance',
     ],
@@ -81,7 +99,7 @@ const subjectContexts: Record<string, SubjectContext> = {
     ],
     effectiveAnalogies: [
       'Trading in a market for mole ratios in reactions',
-      'Baking bread for exothermic reactions (heat released)',
+      'Baking bread for exothermic reactions',
       'Rust on iron roofing for oxidation in everyday life',
     ],
     examFocus: [
@@ -99,7 +117,7 @@ const subjectContexts: Record<string, SubjectContext> = {
     ],
     effectiveAnalogies: [
       'Household sieve for diffusion and osmosis',
-      'Building a house for cell division (copying blueprints)',
+      'Building a house for cell division',
       'School timetable for DNA replication sequence',
     ],
     examFocus: [
@@ -113,10 +131,10 @@ const subjectContexts: Record<string, SubjectContext> = {
       'Distinguishing between similar parts of speech in context',
       'Understanding comprehension passages under time pressure',
       'Confusing tenses in complex sentences',
-      'Essay structure — introduction, body, conclusion discipline',
+      'Essay structure - introduction, body, conclusion discipline',
     ],
     effectiveAnalogies: [
-      'Market negotiation for persuasive writing techniques',
+      'Market negotiation for persuasive writing',
       'Daily conversation patterns for tense usage',
     ],
     examFocus: [
@@ -127,7 +145,6 @@ const subjectContexts: Record<string, SubjectContext> = {
   },
 }
 
-// Default context for subjects not specifically listed
 const defaultContext: SubjectContext = {
   studentStruggles: [
     'Over-relying on memorisation instead of understanding',
@@ -147,13 +164,6 @@ const defaultContext: SubjectContext = {
 
 export function getSubjectContext(subjectName: string): SubjectContext {
   const key = subjectName.toLowerCase()
-    .replace(/mathematics|maths/i, 'mathematics')
-    .replace(/further mathematics/i, 'mathematics')
-    .replace(/physics/i, 'physics')
-    .replace(/chemistry/i, 'chemistry')
-    .replace(/biology/i, 'biology')
-    .replace(/english|use of english/i, 'english')
-
   for (const [k, v] of Object.entries(subjectContexts)) {
     if (key.includes(k)) return v
   }

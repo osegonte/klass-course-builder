@@ -1,12 +1,11 @@
 import { supabase } from '../lib/supabase'
+import type { ExportFormat } from '../types/content'
 
 export interface ExportQuestion {
-  external_question_id: string
-  subject_external_id: string | null
-  subtopic_external_id: string | null
-  subject_name: string
-  topic_name: string
+  klass_question_id: string
   subtopic_name: string
+  topic_name: string
+  subject_name: string
   type: string
   question_text: string
   options: { id: string; text: string }[]
@@ -14,86 +13,80 @@ export interface ExportQuestion {
   hint: string
 }
 
-export async function exportReadyQuestions(): Promise<{
-  json: string
-  filename: string
-  count: number
-}> {
-  // Load all ready draft questions
-  const { data: drafts, error } = await supabase
-    .from('cs_draft_questions')
-    .select('*')
+export async function exportQuestions(
+  subjectId: string,
+  topicId: string | null,
+  format: ExportFormat,
+  consumerName?: string
+): Promise<{ json: string; filename: string; count: number }> {
+
+  // Load ready questions
+  let query = supabase
+    .from('questions')
+    .select(`
+      id, type, question_text, options, correct_answer, hint, status,
+      subtopic_id,
+      subtopics (
+        name, topic_id,
+        topics ( name )
+      ),
+      subjects ( name )
+    `)
+    .eq('subject_id', subjectId)
     .eq('status', 'ready')
+    .eq('is_mock_question', false)
 
+  if (topicId) {
+    // Filter by topic via subtopics join — fetch subtopic ids for this topic first
+    const { data: subs } = await supabase
+      .from('subtopics')
+      .select('id')
+      .eq('topic_id', topicId)
+    const subIds = (subs ?? []).map(s => s.id)
+    if (subIds.length === 0) throw new Error('No subtopics found for this topic.')
+    query = query.in('subtopic_id', subIds)
+  }
+
+  const { data: rows, error } = await query
   if (error) throw new Error(error.message)
-  if (!drafts || drafts.length === 0) throw new Error('No questions marked as ready.')
+  if (!rows || rows.length === 0) throw new Error('No questions marked as ready.')
 
-  // Load all relevant cs_structure rows to get names + external_ids
-  const subtopicIds = [...new Set(drafts.map(d => d.subtopic_id))]
-  const { data: structureRows } = await supabase
-    .from('cs_structure')
-    .select('id, type, name, external_id, parent_id, subject_id')
-    .in('id', subtopicIds)
-
-  // Build lookup maps
-  const subtopicMap = new Map<string, any>()
-  const idMap = new Map<string, any>()
-
-  for (const row of structureRows ?? []) {
-    idMap.set(row.id, row)
-    if (row.type === 'subtopic') subtopicMap.set(row.id, row)
-  }
-
-  // Load topic and subject rows we need
-  const parentIds = [...new Set((structureRows ?? []).map(r => r.parent_id).filter(Boolean))]
-  const subjectIds = [...new Set((structureRows ?? []).map(r => r.subject_id).filter(Boolean))]
-  const extraIds = [...new Set([...parentIds, ...subjectIds])]
-
-  if (extraIds.length > 0) {
-    const { data: extraRows } = await supabase
-      .from('cs_structure')
-      .select('id, type, name, external_id, parent_id, subject_id')
-      .in('id', extraIds)
-    for (const row of extraRows ?? []) idMap.set(row.id, row)
-  }
-
-  const questions: ExportQuestion[] = drafts.map(d => {
-    const subtopic = idMap.get(d.subtopic_id)
-    const topic = subtopic ? idMap.get(subtopic.parent_id) : null
-    const subject = subtopic ? idMap.get(subtopic.subject_id) : null
-
-    return {
-      external_question_id: d.id,
-      subject_external_id: subject?.external_id ?? null,
-      subtopic_external_id: subtopic?.external_id ?? null,
-      subject_name: subject?.name ?? '',
-      topic_name: topic?.name ?? '',
-      subtopic_name: subtopic?.name ?? '',
-      type: d.type,
-      question_text: d.question_text,
-      options: d.options ?? [],
-      correct_answer: d.correct_answer,
-      hint: d.hint ?? '',
-    }
-  })
+  const questions: ExportQuestion[] = rows.map((r: any) => ({
+    klass_question_id: r.id,
+    subject_name: r.subjects?.name ?? '',
+    topic_name: (r.subtopics as any)?.topics?.name ?? '',
+    subtopic_name: (r.subtopics as any)?.name ?? '',
+    type: r.type,
+    question_text: r.question_text,
+    options: r.options ?? [],
+    correct_answer: r.correct_answer,
+    hint: r.hint ?? '',
+  }))
 
   const payload = {
     source: 'klass-studio',
+    format,
     exported_at: new Date().toISOString(),
     questions,
   }
 
-  // Mark all as exported
-  const ids = drafts.map(d => d.id)
-  await supabase
-    .from('cs_draft_questions')
-    .update({ status: 'exported' })
-    .in('id', ids)
+  // Log export
+  await supabase.from('consumer_exports').insert({
+    subject_id: subjectId,
+    topic_id: topicId ?? null,
+    format,
+    consumer_name: consumerName ?? null,
+    question_count: questions.length,
+  })
+
+  // Mark as exported
+  const ids = rows.map((r: any) => r.id)
+  await supabase.from('questions').update({ status: 'exported' }).in('id', ids)
 
   const date = new Date().toISOString().split('T')[0]
   return {
     json: JSON.stringify(payload, null, 2),
-    filename: `klass-questions-${date}.json`,
+    filename: `klass-export-${date}.json`,
     count: questions.length,
   }
 }

@@ -1,362 +1,445 @@
-import { useEffect, useState, useRef } from 'react'
+import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ChevronRight, Sparkles, Loader2, Check, BookOpen } from 'lucide-react'
-import { useTopicRow, useSubtopicsFromStructure } from '../hooks/useStructure'
+import { ArrowLeft, Plus, ChevronRight, BookOpen, Layers, User, Lock, CheckCircle } from 'lucide-react'
+import { useSubject, useTopicRow, useSubtopics } from '../hooks/useStructure'
+import { useAuth } from '../hooks/useAuth'
+import { useTopicContentBlocks } from '../hooks/useContentBlocks'
+import { useTopicQuestions as useQuestions } from '../hooks/useQuestions'
+import { useTopicFlashcards as useFlashcards } from '../hooks/useFlashcards'
 import { useTopicIntro } from '../hooks/useTopicIntro'
-import { supabase } from '../lib/supabase'
-import { buildFullSystemPrompt } from '../lib/professorKlass'
-import SourcesPanel, { type Sources } from '../components/content/SourcesPanel'
-import type { CSStructureRow } from '../hooks/useStructure'
+import { useTopicAssignments, claimSubtopic, completeSubtopic } from '../hooks/useAssignments'
+import ContentBlockCard from '../components/content/ContentBlockCard'
+import BlockTypeSelector from '../components/content/BlockTypeSelector'
+import InlineQuestionPicker from '../components/content/InlineQuestionPicker'
+import InlineFlashcardPicker from '../components/content/InlineFlashcardPicker'
+import OverviewPanel from '../components/content/OverviewPanel'
+import GenerateCourse from '../components/content/GenerateCourse'
+import type { ContentBlock, BlockType, QuestionType, Question } from '../types/content'
+import { Sparkles } from 'lucide-react'
 
-const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 
-function useSubjectRow(subjectId: string | null) {
-  const [subject, setSubject] = useState<CSStructureRow | null>(null)
-  useEffect(() => {
-    if (!subjectId) return
-    supabase.from('cs_structure').select('*').eq('id', subjectId).single()
-      .then(({ data }) => { if (data) setSubject(data) })
-  }, [subjectId])
-  return { subject }
-}
 
-async function generateTopicIntro(params: {
-  topicName: string
-  subjectName: string
-  objectives: string[]
-  subtopicNames: string[]
-  sources: Sources
-}): Promise<{ overview: string; why_it_matters: string; prerequisites: string }> {
-  const { topicName, subjectName, objectives, subtopicNames, sources } = params
-
-  const sourceParts: string[] = []
-  if (sources.transcript.trim()) sourceParts.push(`=== YOUTUBE TRANSCRIPT ===\n${sources.transcript}`)
-  if (sources.textbook.trim()) sourceParts.push(`=== TEXTBOOK EXTRACT ===\n${sources.textbook}`)
-  if (sources.extra.trim()) sourceParts.push(`=== ADDITIONAL NOTES ===\n${sources.extra}`)
-  const sourceBlock = sourceParts.length > 0
-    ? `\n\nSOURCE MATERIALS:\n${sourceParts.join('\n\n')}`
-    : ''
-
-  const response = await fetch(ANTHROPIC_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': import.meta.env.VITE_ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2048,
-      system: buildFullSystemPrompt(subjectName),
-      messages: [{
-        role: 'user',
-        content: `Write a course introduction for the following topic.
-
-Subject: ${subjectName}
-Topic: ${topicName}
-Learning Objectives: ${objectives.length > 0 ? objectives.join('; ') : 'Not specified'}
-Chapters in this course: ${subtopicNames.join(', ')}${sourceBlock}
-
-Return ONLY valid JSON with exactly these three fields:
-
-{
-  "overview": "2-3 sentences. What is this topic about and what will the student be able to do by the end? Start with something that makes the student want to learn this. Make it feel relevant, not textbook.",
-  "why_it_matters": "1-2 sentences. Why does this topic matter in the real world or in exams? Give a concrete hook — something a Nigerian student can relate to.",
-  "prerequisites": "1-2 sentences. What should the student already know before starting? Be specific — name actual concepts, not just 'basic maths'."
-}
-
-Be concise. Every word should earn its place. Write as Professor KLASS would — warm, direct, expert.`
-      }],
-    }),
-  })
-
-  if (!response.ok) throw new Error(`API error: ${response.status}`)
-  const data = await response.json()
-  const text: string = data.content[0].text
-  try {
-    return JSON.parse(text)
-  } catch {
-    const match = text.match(/\{[\s\S]*\}/)
-    if (match) return JSON.parse(match[0])
-    throw new Error('Failed to parse response')
-  }
-}
-
-// ── Topic Intro Editor ────────────────────────────────────────────────────────
-
-interface IntroEditorProps {
-  topicName: string
-  subjectName: string
-  objectives: string[]
-  subtopicNames: string[]
-  topicId: string
-  subjectId: string
-}
-
-function TopicIntroEditor({ topicName, subjectName, objectives, subtopicNames, topicId, subjectId }: IntroEditorProps) {
-  const { intro, saving, save } = useTopicIntro(topicId, subjectId)
-  const [generating, setGenerating] = useState(false)
-  const [error, setError] = useState('')
-  const [localOverview, setLocalOverview] = useState('')
-  const [localWhy, setLocalWhy] = useState('')
-  const [localPre, setLocalPre] = useState('')
-  const [sources, setSources] = useState<Sources>({ transcript: '', textbook: '', extra: '' })
-  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    if (intro) {
-      setLocalOverview(intro.overview)
-      setLocalWhy(intro.why_it_matters)
-      setLocalPre(intro.prerequisites)
-      setSources({
-        transcript: intro.source_transcript ?? '',
-        textbook: intro.source_textbook ?? '',
-        extra: intro.source_extra ?? '',
-      })
-    }
-  }, [intro])
-
-  const handleChange = (field: 'overview' | 'why' | 'pre', value: string) => {
-    if (field === 'overview') setLocalOverview(value)
-    if (field === 'why') setLocalWhy(value)
-    if (field === 'pre') setLocalPre(value)
-    if (saveTimer.current) clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => {
-      save({
-        overview: field === 'overview' ? value : localOverview,
-        why_it_matters: field === 'why' ? value : localWhy,
-        prerequisites: field === 'pre' ? value : localPre,
-        source_transcript: sources.transcript,
-        source_textbook: sources.textbook,
-        source_extra: sources.extra,
-      })
-    }, 1200)
-  }
-
-  const handleGenerate = async () => {
-    setError('')
-    setGenerating(true)
-    try {
-      const result = await generateTopicIntro({ topicName, subjectName, objectives, subtopicNames, sources })
-      setLocalOverview(result.overview)
-      setLocalWhy(result.why_it_matters)
-      setLocalPre(result.prerequisites)
-      await save({
-        overview: result.overview,
-        why_it_matters: result.why_it_matters,
-        prerequisites: result.prerequisites,
-        source_transcript: sources.transcript,
-        source_textbook: sources.textbook,
-        source_extra: sources.extra,
-      })
-    } catch (err: any) {
-      setError(err.message)
-    }
-    setGenerating(false)
-  }
-
-  const hasContent = localOverview || localWhy || localPre
-
-  return (
-    <div className="border border-gray-200 rounded bg-white overflow-hidden mb-8">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-stone-50">
-        <div className="flex items-center gap-2">
-          <BookOpen size={12} className="text-gray-400" />
-          <span className="text-xs font-semibold uppercase tracking-widest text-gray-500">Course Introduction</span>
-          {saving && <Loader2 size={10} className="animate-spin text-gray-300" />}
-          {!saving && hasContent && <Check size={10} className="text-gray-300" />}
-        </div>
-        <button
-          onClick={handleGenerate}
-          disabled={generating}
-          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded transition-colors border ${
-            generating
-              ? 'opacity-50 border-gray-200 text-gray-400'
-              : hasContent
-              ? 'border-gray-300 text-gray-500 hover:border-gray-400'
-              : 'border-gray-900 bg-gray-900 text-white hover:bg-gray-700'
-          }`}
-        >
-          {generating
-            ? <><Loader2 size={11} className="animate-spin" />Generating…</>
-            : <><Sparkles size={11} />{hasContent ? 'Regenerate' : 'AI Generate'}</>
-          }
-        </button>
-      </div>
-
-      {error && (
-        <div className="px-4 py-2 text-xs text-red-500 bg-red-50 border-b border-red-100">{error}</div>
-      )}
-
-      <div className="p-4 border-b border-gray-100">
-        <SourcesPanel
-          sources={sources}
-          onChange={s => {
-            setSources(s)
-            save({
-              overview: localOverview,
-              why_it_matters: localWhy,
-              prerequisites: localPre,
-              source_transcript: s.transcript,
-              source_textbook: s.textbook,
-              source_extra: s.extra,
-            })
-          }}
-        />
-      </div>
-
-      <div className="divide-y divide-gray-100">
-        {[
-          {
-            field: 'overview' as const,
-            label: 'Overview',
-            value: localOverview,
-            placeholder: 'What is this topic about? What will the student be able to do by the end? Make it feel relevant and worth learning.',
-            rows: 3,
-          },
-          {
-            field: 'why' as const,
-            label: 'Why it matters',
-            value: localWhy,
-            placeholder: 'Why does this topic matter in real life or in exams? Give a concrete hook.',
-            rows: 2,
-          },
-          {
-            field: 'pre' as const,
-            label: 'Prerequisites',
-            value: localPre,
-            placeholder: 'What should the student already know before starting? Be specific — name actual concepts.',
-            rows: 2,
-          },
-        ].map(({ field, label, value, placeholder, rows }) => (
-          <div key={field} className="px-4 py-3">
-            <p className="text-xs font-medium text-gray-500 mb-1.5">{label}</p>
-            <textarea
-              value={value}
-              onChange={e => handleChange(field, e.target.value)}
-              placeholder={placeholder}
-              rows={rows}
-              className="w-full text-sm text-gray-800 placeholder-gray-300 outline-none resize-none leading-relaxed bg-transparent"
-            />
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ── Main TopicDetail page ─────────────────────────────────────────────────────
+type Tab = 'intro' | 'subtopics'
 
 export default function TopicDetail() {
-  const { projectId, topicId } = useParams<{ projectId: string; topicId: string }>()
   const navigate = useNavigate()
-  const { topic } = useTopicRow(topicId!)
-  const { subtopics, loading } = useSubtopicsFromStructure(topicId!)
-  const { subject } = useSubjectRow(topic?.subject_id ?? null)
+  const { subjectId, topicId } = useParams<{ subjectId: string; topicId: string }>()
 
-  const subtopicNames = subtopics.map(s => s.name)
+  const { user } = useAuth()
+  const CURRENT_TEACHER_ID   = user?.id ?? ''
+  const CURRENT_TEACHER_NAME = user?.user_metadata?.display_name ?? user?.email ?? 'Teacher'
+
+  const { subject }                                                = useSubject(subjectId!)
+  const { topic }                                                  = useTopicRow(topicId!)
+  const { subtopics, loading: subtopicsLoading, createSubtopic }  = useSubtopics(topicId!)
+  const { assignments, refetch: refetchAssignments }              = useTopicAssignments(topicId!)
+  const { intro, save: saveIntro }                                = useTopicIntro(topicId!)
+
+  const { blocks, loading: blocksLoading, addBlock, updateBlock, deleteBlock } = useTopicContentBlocks(topicId!)
+  const { questions, addQuestion }  = useQuestions(topicId!)
+  const { flashcards, addFlashcard } = useFlashcards(topicId!)
+
+  // Intro gate: subtopics unlock once at least one content block exists in intro
+  const introHasBlocks = blocks.length > 0
+
+  const [tab, setTab]                         = useState<Tab>('intro')
+  const [newSubtopicName, setNewSubtopicName] = useState('')
+  const [addingSubtopic, setAddingSubtopic]   = useState(false)
+  const [showSelector, setShowSelector]       = useState(false)
+  const [showQPicker, setShowQPicker]         = useState(false)
+  const [showFPicker, setShowFPicker]         = useState(false)
+  const [showGenerate, setShowGenerate]       = useState(false)
+  const [claimingId, setClaimingId]           = useState<string | null>(null)
+  const [feedback, setFeedback]               = useState<{ id: string; msg: string } | null>(null)
+
+  // Save topic overview (uses topic_intros table)
+  const handleSaveOverview = async (data: { overview: string; objectives: string[] }) => {
+    await saveIntro({
+      overview:   data.overview,
+      objectives: data.objectives,
+    })
+  }
+
+  // AI accept handlers
+  const handleAcceptBlocks = async (incoming: Omit<ContentBlock, 'id' | 'order'>[]) => {
+    for (let i = 0; i < incoming.length; i++) {
+      await addBlock({ ...incoming[i], id: crypto.randomUUID(), order: blocks.length + i } as ContentBlock)
+    }
+  }
+
+  const handleAcceptQuestions = async (incoming: Omit<Question, 'id' | 'order'>[]) => {
+    for (let i = 0; i < incoming.length; i++) {
+      await addQuestion({ ...incoming[i], id: crypto.randomUUID(), order: questions.length + i } as Question)
+    }
+  }
+
+  // Block builder
+  const handleSelectType = (type: BlockType) => {
+    setShowSelector(false)
+    if (type === 'question')  { setShowQPicker(true);  return }
+    if (type === 'flashcard') { setShowFPicker(true);  return }
+    createBlock(type)
+  }
+
+  const createBlock = async (type: BlockType, extra?: Partial<ContentBlock>) => {
+    await addBlock({
+      id: crypto.randomUUID(), type, title: '', body: '',
+      order: blocks.length,
+      steps: type === 'example' ? [] : undefined,
+      ...extra,
+    } as ContentBlock)
+  }
+
+  const handlePickQuestion = async (questionId: string) => {
+    await createBlock('question', { questionId })
+    setShowQPicker(false)
+  }
+
+  const handleNewQuestion = async (type: QuestionType) => {
+    const q = {
+      id: crypto.randomUUID(), type, questionText: '',
+      options: type === 'mcq' || type === 'multiselect'
+        ? [{ id: crypto.randomUUID(), text: '' }, { id: crypto.randomUUID(), text: '' }]
+        : [],
+      correctAnswer: '', hint: '', status: 'draft' as const,
+      isMockQuestion: false, order: questions.length,
+    }
+    await addQuestion(q)
+    await createBlock('question', { questionId: q.id })
+    setShowQPicker(false)
+  }
+
+  const handlePickFlashcard = async (flashcardId: string) => {
+    await createBlock('flashcard', { flashcardId })
+    setShowFPicker(false)
+  }
+
+  const handleNewFlashcard = async () => {
+    const card = { id: crypto.randomUUID(), front: '', back: '', order: flashcards.length }
+    await addFlashcard(card)
+    await createBlock('flashcard', { flashcardId: card.id })
+    setShowFPicker(false)
+  }
+
+  // Subtopics
+  const handleAddSubtopic = async () => {
+    if (!newSubtopicName.trim() || !subjectId) return
+    setAddingSubtopic(true)
+    await createSubtopic(newSubtopicName.trim(), subjectId)
+    setNewSubtopicName('')
+    setAddingSubtopic(false)
+  }
+
+  const handleClaim = async (subtopicId: string) => {
+    setClaimingId(subtopicId)
+    const sorted = [...subtopics].sort((a, b) => a.subtopicOrder - b.subtopicOrder)
+    const result = await claimSubtopic(subtopicId, CURRENT_TEACHER_ID, sorted, assignments)
+    if (result.success) {
+      await refetchAssignments()
+      navigate(`/subject/${subjectId}/topic/${topicId}/subtopic/${subtopicId}/content`)
+    } else {
+      setFeedback({ id: subtopicId, msg: result.reason ?? 'Could not claim.' })
+      setTimeout(() => setFeedback(null), 3000)
+    }
+    setClaimingId(null)
+  }
+
+  const handleComplete = async (subtopicId: string) => {
+    await completeSubtopic(subtopicId, CURRENT_TEACHER_ID)
+    await refetchAssignments()
+  }
+
+  const sorted = [...subtopics].sort((a, b) => a.subtopicOrder - b.subtopicOrder)
+
+  function getState(subtopicId: string, index: number) {
+    const a = assignments.find(x => x.subtopicId === subtopicId)
+    if (a) {
+      if (a.status === 'complete')            return { status: 'complete'     as const, who: a.teacherName }
+      if (a.teacherId === CURRENT_TEACHER_ID) return { status: 'mine'         as const, who: CURRENT_TEACHER_NAME }
+      return                                         { status: 'locked_other' as const, who: a.teacherName }
+    }
+    if (index === 0) return { status: 'open' as const }
+    const prev  = sorted[index - 1]
+    const prevA = assignments.find(x => x.subtopicId === prev.id)
+    if (!prevA || prevA.status !== 'complete') return { status: 'blocked' as const }
+    return { status: 'open' as const }
+  }
 
   return (
     <div className="min-h-screen bg-stone-50">
 
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center gap-3">
-        <button onClick={() => navigate(`/project/${projectId}`)} className="text-gray-400 hover:text-gray-700 transition-colors">
-          <ArrowLeft size={16} />
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 px-6 py-3 flex items-center gap-3">
+        <button type="button" onClick={() => navigate(`/subject/${subjectId}`)} className="text-gray-400 hover:text-gray-700">
+          <ArrowLeft size={15} />
         </button>
         <div className="w-px h-4 bg-gray-200" />
-        <span className="text-xs font-semibold tracking-widest uppercase text-gray-400">KLASS Studio</span>
-        {subject && (
-          <>
-            <div className="w-px h-4 bg-gray-200" />
-            <button onClick={() => navigate(`/project/${projectId}`)} className="text-xs text-gray-400 hover:text-gray-600 transition-colors">
-              {subject.name}
-            </button>
-          </>
-        )}
-        {topic && (
-          <>
-            <span className="text-gray-300">/</span>
-            <span className="text-sm text-gray-700 font-medium truncate max-w-[200px]">{topic.name}</span>
-          </>
-        )}
+        <span className="text-xs font-semibold tracking-widest uppercase text-gray-400">KLASS</span>
+        {subject && (<>
+          <span className="text-gray-300">/</span>
+          <button type="button" onClick={() => navigate(`/subject/${subjectId}`)} className="text-xs text-gray-400 hover:text-gray-600 truncate max-w-[100px]">
+            {subject.name}
+          </button>
+        </>)}
+        {topic && (<>
+          <span className="text-gray-300">/</span>
+          <span className="text-xs font-medium text-gray-700 truncate max-w-[160px]">{topic.name}</span>
+        </>)}
       </header>
 
-      <div className="max-w-2xl mx-auto py-12 px-6">
+      {/* Tab bar */}
+      <div className="bg-white border-b border-gray-200 px-6 flex gap-1">
+        {([
+          { id: 'intro',     icon: BookOpen, label: 'Course Intro' },
+          { id: 'subtopics', icon: Layers,   label: introHasBlocks ? 'Subtopics' : 'Subtopics (locked)'   },
+        ] as const).map(({ id, icon: Icon, label }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTab(id)}
+            disabled={id === 'subtopics' && !introHasBlocks}
+            className={`flex items-center gap-1.5 px-3 py-3 text-xs font-medium border-b-2 -mb-px transition-colors ${
+              id === 'subtopics' && !introHasBlocks ? 'text-gray-300 border-transparent cursor-not-allowed' :
+              tab === id ? 'text-gray-900 border-gray-900' : 'text-gray-400 border-transparent hover:text-gray-700'
+            }`}
+          >
+            <Icon size={13} />
+            {label}
+          </button>
+        ))}
+      </div>
 
-        {/* Topic header */}
-        <div className="mb-6">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs text-gray-400 uppercase tracking-widest font-medium">{subject?.name}</span>
+      {/* ── INTRO TAB ──────────────────────────────────────────── */}
+      {tab === 'intro' && (
+        <div className="max-w-2xl mx-auto py-10 px-6">
+
+          {/* Overview panel */}
+          <OverviewPanel
+            context="topic"
+            topicId={topicId!}
+            topicName={topic?.name ?? ''}
+            subjectName={subject?.name}
+            data={{
+              overview:   intro?.overview   ?? topic?.description ?? '',
+              objectives: [],
+            }}
+            onSave={handleSaveOverview}
+          />
+
+          <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-200">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">Course Content Blocks</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Build the full course intro using blocks.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowGenerate(true)}
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:border-gray-900 hover:text-gray-900 transition-colors"
+            >
+              <Sparkles size={12} />
+              Generate with AI
+            </button>
           </div>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-3">{topic?.name ?? '…'}</h2>
-          {topic?.objectives && topic.objectives.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {topic.objectives.map((obj, i) => (
-                <span key={i} className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">{obj}</span>
-              ))}
+
+          {!blocksLoading && blocks.length === 0 && (
+            <div className="border border-dashed border-gray-300 rounded p-12 text-center mb-4">
+              <p className="text-sm text-gray-500 mb-1">No intro blocks yet.</p>
+              <p className="text-xs text-gray-400 mb-6">Build manually or let Professor KLASS generate the course introduction.</p>
+              <div className="flex items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowSelector(true)}
+                  className="flex items-center gap-1.5 text-xs bg-gray-900 text-white px-4 py-2 rounded hover:bg-gray-700 transition-colors"
+                >
+                  <Plus size={13} /> Add Block
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowGenerate(true)}
+                  className="flex items-center gap-1.5 text-xs border border-gray-300 text-gray-600 px-4 py-2 rounded hover:border-gray-400 transition-colors"
+                >
+                  <Sparkles size={12} /> Generate with AI
+                </button>
+              </div>
             </div>
           )}
+
+          <div className="flex flex-col gap-3">
+            {blocks.map(block => (
+              <ContentBlockCard
+                key={block.id}
+                block={block}
+                question={block.questionId   ? questions.find(q => q.id === block.questionId)   : undefined}
+                flashcard={block.flashcardId ? flashcards.find(f => f.id === block.flashcardId) : undefined}
+                onChange={updateBlock}
+                onDelete={deleteBlock}
+              />
+            ))}
+          </div>
+
+          {blocks.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setShowSelector(true)}
+              className="mt-4 w-full flex items-center justify-center gap-2 border border-dashed border-gray-300 hover:border-gray-500 text-gray-400 hover:text-gray-600 text-xs py-3 rounded transition-colors"
+            >
+              <Plus size={13} /> Add Block
+            </button>
+          )}
         </div>
+      )}
 
-        {/* Course intro editor */}
-        {topic && subject && !loading && (
-          <TopicIntroEditor
-            topicName={topic.name}
-            subjectName={subject.name}
-            objectives={topic.objectives ?? []}
-            subtopicNames={subtopicNames}
-            topicId={topicId!}
-            subjectId={topic.subject_id!}
-          />
-        )}
-
-        {/* Chapters */}
-        <div className="mb-3 flex items-center justify-between">
-          <span className="text-xs font-semibold uppercase tracking-widest text-gray-400">
-            Chapters · {subtopics.length}
-          </span>
-        </div>
-
-        {loading && (
-          <div className="border border-gray-200 rounded bg-white divide-y divide-gray-100">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="px-5 py-4 flex items-center gap-4">
-                <div className="w-4 h-2.5 bg-gray-100 rounded animate-pulse" />
-                <div className="h-3 w-40 bg-gray-100 rounded animate-pulse" />
+      {/* ── SUBTOPICS TAB ─────────────────────────────────────── */}
+      {tab === 'subtopics' && (
+        <div className="max-w-2xl mx-auto py-10 px-6">
+          {!introHasBlocks && (
+            <div className="border border-amber-200 bg-amber-50 rounded p-4 mb-6 flex items-start gap-3">
+              <div className="w-1.5 h-1.5 rounded-full bg-amber-500 mt-1.5 shrink-0" />
+              <div>
+                <p className="text-xs font-medium text-amber-800">Complete the Course Intro first</p>
+                <p className="text-xs text-amber-700 mt-0.5">Add at least one content block to the Course Intro before adding subtopics. The intro is the foundation students see before any deep-dive.</p>
               </div>
-            ))}
+            </div>
+          )}
+          <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-200">
+            <div>
+              <h2 className="text-base font-semibold text-gray-900">Subtopics</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Claim a subtopic to start building. Complete it to unlock the next.</p>
+            </div>
           </div>
-        )}
 
-        {!loading && subtopics.length === 0 && (
-          <div className="bg-white border border-gray-200 rounded p-10 text-center">
-            <p className="text-sm text-gray-500">No chapters found.</p>
-            <p className="text-xs text-gray-400 mt-1">Re-import curriculum if subtopics are missing.</p>
-          </div>
-        )}
-
-        {!loading && subtopics.length > 0 && (
-          <div className="flex flex-col divide-y divide-gray-100 border border-gray-200 rounded bg-white overflow-hidden">
-            {subtopics.map((sub, index) => (
-              <button
-                key={sub.id}
-                onClick={() => navigate(`/project/${projectId}/topic/${topicId}/subtopic/${sub.id}/content`)}
-                className="flex items-center gap-4 px-5 py-4 hover:bg-stone-50 transition-colors text-left group"
-              >
-                <span className="text-xs text-gray-300 w-6 shrink-0 tabular-nums font-mono">
-                  {String(index + 1).padStart(2, '0')}
-                </span>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-900">{sub.name}</p>
+          {!subtopicsLoading && (
+            <div className="flex flex-col gap-2 mb-4">
+              {sorted.length === 0 && (
+                <div className="border border-dashed border-gray-300 rounded p-10 text-center">
+                  <p className="text-sm text-gray-400">No subtopics yet. Add one below.</p>
                 </div>
-                <ChevronRight size={14} className="text-gray-300 group-hover:text-gray-500 transition-colors" />
-              </button>
-            ))}
-          </div>
-        )}
+              )}
+              {sorted.map((subtopic, index) => {
+                const state = getState(subtopic.id, index)
+                const fb    = feedback?.id === subtopic.id ? feedback.msg : null
+                return (
+                  <div
+                    key={subtopic.id}
+                    className={`bg-white border rounded p-4 flex items-center justify-between gap-3 ${
+                      state.status === 'locked_other' || state.status === 'blocked' ? 'opacity-60' : ''
+                    }`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      {state.status === 'complete'     && <CheckCircle size={14} className="text-green-500 shrink-0" />}
+                      {state.status === 'mine'         && <div className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />}
+                      {state.status === 'locked_other' && <Lock size={14} className="text-gray-400 shrink-0" />}
+                      {state.status === 'blocked'      && <Lock size={14} className="text-gray-300 shrink-0" />}
+                      {state.status === 'open'         && <div className="w-2 h-2 rounded-full bg-gray-300 shrink-0" />}
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{subtopic.name}</p>
+                        {'who' in state && state.who && (
+                          <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5">
+                            <User size={10} />{state.who}{state.status === 'mine' ? ' (you)' : ''}
+                          </p>
+                        )}
+                        {fb && <p className="text-xs text-red-500 mt-0.5">{fb}</p>}
+                        {state.status === 'blocked' && <p className="text-xs text-gray-400 mt-0.5">Complete the previous subtopic first</p>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {state.status === 'open' && (
+                        <button
+                          type="button"
+                          onClick={() => handleClaim(subtopic.id)}
+                          disabled={claimingId === subtopic.id}
+                          className="text-xs bg-gray-900 text-white px-3 py-1.5 rounded hover:bg-gray-700 disabled:opacity-40"
+                        >
+                          {claimingId === subtopic.id ? 'Claiming…' : 'Claim & Build'}
+                        </button>
+                      )}
+                      {state.status === 'mine' && (<>
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/subject/${subjectId}/topic/${topicId}/subtopic/${subtopic.id}/content`)}
+                          className="text-xs border border-gray-300 text-gray-600 px-3 py-1.5 rounded hover:border-gray-500"
+                        >
+                          Continue
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleComplete(subtopic.id)}
+                          className="text-xs bg-green-600 text-white px-3 py-1.5 rounded hover:bg-green-700"
+                        >
+                          Mark Done
+                        </button>
+                      </>)}
+                      {state.status === 'complete' && (
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/subject/${subjectId}/topic/${topicId}/subtopic/${subtopic.id}/content`)}
+                          className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"
+                        >
+                          View <ChevronRight size={12} />
+                        </button>
+                      )}
+                      {state.status === 'locked_other' && <span className="text-xs text-gray-400">Locked</span>}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
 
-      </div>
+          <div className="flex gap-2">
+            <input
+              className="flex-1 border border-gray-200 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
+              placeholder="New subtopic name…"
+              value={newSubtopicName}
+              onChange={e => setNewSubtopicName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAddSubtopic()}
+            />
+            <button
+              type="button"
+              onClick={handleAddSubtopic}
+              disabled={!newSubtopicName.trim() || addingSubtopic}
+              className="flex items-center gap-1.5 text-xs bg-gray-900 text-white px-3 py-2 rounded hover:bg-gray-700 disabled:opacity-40 shrink-0"
+            >
+              <Plus size={12} />
+              {addingSubtopic ? 'Adding…' : 'Add'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modals */}
+      {showSelector && <BlockTypeSelector onSelect={handleSelectType} onClose={() => setShowSelector(false)} />}
+      {showQPicker && (
+        <InlineQuestionPicker
+          questions={questions}
+          onPickExisting={handlePickQuestion}
+          onCreateNew={handleNewQuestion}
+          onClose={() => setShowQPicker(false)}
+        />
+      )}
+      {showFPicker && (
+        <InlineFlashcardPicker
+          flashcards={flashcards}
+          onPickExisting={handlePickFlashcard}
+          onCreateNew={handleNewFlashcard}
+          onClose={() => setShowFPicker(false)}
+        />
+      )}
+      {showGenerate && (
+        <GenerateCourse
+          params={{
+            level:        'topic',
+            name:         topic?.name    ?? '',
+            topicName:    topic?.name    ?? '',
+            subjectName:  subject?.name,
+            overview:     intro?.overview ?? '',
+            objectives:   [],
+          }}
+          onAcceptBlocks={handleAcceptBlocks}
+          onAcceptQuestions={handleAcceptQuestions}
+          onClose={() => setShowGenerate(false)}
+        />
+      )}
     </div>
   )
 }
